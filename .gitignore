@@ -4,4 +4,5 @@
 .env
 config.json
 config.local.json
+config.test*.json
 composer.lock
