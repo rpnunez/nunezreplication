@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MySQL Replication Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>MySQL Replication Dashboard</h1>
+            <div class="status-indicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Loading...</span>
+            </div>
+        </header>
+
+        <div class="dashboard">
+            <div class="card">
+                <h2>Configuration</h2>
+                <div id="configInfo">
+                    <p>Loading configuration...</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Replication Statistics</h2>
+                <div id="statsInfo">
+                    <p>Loading statistics...</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Tables Status</h2>
+                <div id="tablesInfo">
+                    <p>Loading table information...</p>
+                </div>
+            </div>
+
+            <div class="card actions">
+                <h2>Actions</h2>
+                <button id="syncButton" class="btn btn-primary">Trigger Manual Sync</button>
+                <div id="syncResult"></div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Last updated: <span id="lastUpdate">-</span></p>
+            <p>Auto-refresh enabled (every 5 seconds)</p>
+        </footer>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
