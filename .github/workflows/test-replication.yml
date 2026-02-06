@@ -1,0 +1,372 @@
+name: Test Replication Engine
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  test-master-slave:
+    name: Test Master-Slave Replication
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql-master:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_master
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+      
+      mysql-slave:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_slave
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: pdo, pdo_mysql, json
+          coverage: none
+      
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+      
+      - name: Wait for MySQL services
+        run: |
+          echo "Waiting for MySQL services to be ready..."
+          sleep 10
+      
+      - name: Initialize master database
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_master < tests/banking_schema.sql
+          echo "Master database initialized with banking schema and data"
+      
+      - name: Initialize slave database (schema only)
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_slave < tests/banking_schema.sql
+          # Clear data from slave to test replication
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_slave -e "
+            SET FOREIGN_KEY_CHECKS=0;
+            TRUNCATE TABLE transactions;
+            TRUNCATE TABLE accounts;
+            TRUNCATE TABLE customers;
+            SET FOREIGN_KEY_CHECKS=1;
+          "
+          echo "Slave database initialized with schema (no data)"
+      
+      - name: Create master-slave config
+        run: |
+          cat > config.test.master-slave.json << 'EOF'
+          {
+            "mode": "master-slave",
+            "syncInterval": "*/5 * * * *",
+            "port": 8080,
+            "demoMode": false,
+            "databases": {
+              "master": {
+                "host": "127.0.0.1",
+                "port": 3306,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_master"
+              },
+              "slave": {
+                "host": "127.0.0.1",
+                "port": 3307,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_slave"
+              }
+            },
+            "replication": {
+              "tables": [
+                {
+                  "name": "customers",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "accounts",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "transactions",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                }
+              ]
+            }
+          }
+          EOF
+      
+      - name: Verify databases before sync
+        run: |
+          echo "=== Master Database (before sync) ==="
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_master -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Slave Database (before sync) ==="
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_slave -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+      
+      - name: Run master-slave replication sync
+        run: |
+          php src/sync.php config.test.master-slave.json
+      
+      - name: Verify databases after sync
+        run: |
+          echo "=== Master Database (after sync) ==="
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_master -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Slave Database (after sync) ==="
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_slave -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+      
+      - name: Test replication results
+        run: |
+          php tests/test_replication.php config.test.master-slave.json
+      
+      - name: Test API endpoints
+        run: |
+          # Start PHP server in background
+          php -S localhost:8080 -t public public/index.php &
+          SERVER_PID=$!
+          sleep 3
+          
+          echo "Testing /api/status endpoint"
+          curl -s http://localhost:8080/api/status | jq '.'
+          
+          echo "Testing /api/config endpoint"
+          curl -s http://localhost:8080/api/config | jq '.'
+          
+          echo "Testing /api/sync endpoint"
+          curl -s -X POST http://localhost:8080/api/sync | jq '.'
+          
+          # Stop server
+          kill $SERVER_PID || true
+
+  test-master-master:
+    name: Test Master-Master Replication
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql-db1:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_db1
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+      
+      mysql-db2:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_db2
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: pdo, pdo_mysql, json
+          coverage: none
+      
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+      
+      - name: Wait for MySQL services
+        run: |
+          echo "Waiting for MySQL services to be ready..."
+          sleep 10
+      
+      - name: Initialize database 1 (master)
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_db1 < tests/banking_schema.sql
+          echo "Database 1 (master) initialized with banking schema and data"
+      
+      - name: Initialize database 2 (slave) with additional data
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_db2 < tests/banking_schema.sql
+          
+          # Add unique customer to db2 to test bidirectional sync
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_db2 -e "
+            INSERT INTO customers (first_name, last_name, email, phone, address) 
+            VALUES ('Sarah', 'Wilson', 'sarah.wilson@example.com', '555-0200', '999 Test Blvd, Miami, FL 33101');
+          "
+          echo "Database 2 (slave) initialized with additional unique customer"
+      
+      - name: Create master-master config
+        run: |
+          cat > config.test.master-master.json << 'EOF'
+          {
+            "mode": "master-master",
+            "syncInterval": "*/5 * * * *",
+            "port": 8080,
+            "demoMode": false,
+            "databases": {
+              "master": {
+                "host": "127.0.0.1",
+                "port": 3306,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_db1"
+              },
+              "slave": {
+                "host": "127.0.0.1",
+                "port": 3307,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_db2"
+              }
+            },
+            "replication": {
+              "tables": [
+                {
+                  "name": "customers",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "accounts",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "transactions",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                }
+              ]
+            }
+          }
+          EOF
+      
+      - name: Verify databases before sync
+        run: |
+          echo "=== Database 1 (before sync) ==="
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_db1 -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Database 2 (before sync) ==="
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_db2 -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+      
+      - name: Run master-master replication sync
+        run: |
+          php src/sync.php config.test.master-master.json
+      
+      - name: Verify databases after sync
+        run: |
+          echo "=== Database 1 (after sync) ==="
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_db1 -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Database 2 (after sync) ==="
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_db2 -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Verify bidirectional sync ==="
+          echo "Checking if unique customer from DB2 exists in DB1:"
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_db1 -e "
+            SELECT * FROM customers WHERE email = 'sarah.wilson@example.com';
+          "
+      
+      - name: Test replication results
+        run: |
+          php tests/test_replication.php config.test.master-master.json
+      
+      - name: Test API endpoints with master-master config
+        run: |
+          # Start PHP server in background
+          php -S localhost:8080 -t public public/index.php &
+          SERVER_PID=$!
+          sleep 3
+          
+          echo "Testing /api/status endpoint"
+          curl -s http://localhost:8080/api/status | jq '.'
+          
+          echo "Testing /api/config endpoint"
+          curl -s http://localhost:8080/api/config | jq '.'
+          
+          # Stop server
+          kill $SERVER_PID || true
