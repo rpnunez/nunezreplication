@@ -20,7 +20,6 @@
     }
   },
   "replication": {
-    "enableTracking": true,
     "tables": [
       {
         "name": "users",

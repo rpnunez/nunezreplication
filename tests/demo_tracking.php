@@ -43,7 +43,7 @@ if (json_last_error() !== JSON_ERROR_NONE) {
 }
 
 echo "Configuration loaded: {$config['mode']} mode\n";
-echo "Tracking enabled: " . (($config['replication']['enableTracking'] ?? true) ? 'Yes' : 'No') . "\n\n";
+echo "Tracking: Always enabled\n\n";
 
 // Initialize database manager
 $dbManager = new DatabaseManager();
@@ -80,21 +80,19 @@ try {
     }
     
     // Check metadata table
-    if ($config['replication']['enableTracking'] ?? true) {
-        echo "=== Metadata Tracking ===\n";
-        $metadata = new ReplicationMetadata($dbManager);
+    echo "=== Metadata Tracking ===\n";
+    $metadata = new ReplicationMetadata($dbManager);
+    
+    if ($metadata->metadataTableExists('slave')) {
+        echo "✓ Metadata table exists in slave\n";
         
-        if ($metadata->metadataTableExists('slave')) {
-            echo "✓ Metadata table exists in slave\n";
-            
-            $metaCount = $dbManager->query('slave', 
-                "SELECT COUNT(*) as cnt FROM _replication_metadata WHERE table_name = 'customers'"
-            )[0]['cnt'];
-            echo "  Metadata records for customers: $metaCount\n";
-            
-            $lastSync = $metadata->getLastSyncTimestamp('slave', 'customers');
-            echo "  Last sync timestamp: " . ($lastSync ?? 'N/A') . "\n\n";
-        }
+        $metaCount = $dbManager->query('slave', 
+            "SELECT COUNT(*) as cnt FROM _replication_metadata WHERE table_name = 'customers'"
+        )[0]['cnt'];
+        echo "  Metadata records for customers: $metaCount\n";
+        
+        $lastSync = $metadata->getLastSyncTimestamp('slave', 'customers');
+        echo "  Last sync timestamp: " . ($lastSync ?? 'N/A') . "\n\n";
     }
     
     // Show table configuration

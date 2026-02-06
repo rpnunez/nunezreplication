@@ -67,7 +67,6 @@ The application uses a JSON configuration file. Here's what each setting means:
     }
   },
   "replication": {
-    "enableTracking": true,          // Enable timestamp and metadata tracking (default: true)
     "tables": [
       {
         "name": "users",                              // Table name
@@ -82,13 +81,13 @@ The application uses a JSON configuration file. Here's what each setting means:
 
 ### Configuration Options
 
-**enableTracking** (default: `true`): Enables advanced tracking features including:
+**timestampColumn** (default: `updated_at`): Specifies which column to use for tracking row modifications. This column should be a TIMESTAMP or DATETIME that updates automatically when rows are modified (e.g., `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`).
+
+**Tracking Features** (always enabled):
 - Automatic metadata table creation (`_replication_metadata`)
 - Timestamp-based conflict resolution
 - Deletion tracking and propagation
 - Last sync tracking per row
-
-**timestampColumn** (default: `updated_at`): Specifies which column to use for tracking row modifications. This column should be a TIMESTAMP or DATETIME that updates automatically when rows are modified (e.g., `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`).
 
 ### Replication Modes
 
@@ -101,10 +100,10 @@ The application uses a JSON configuration file. Here's what each setting means:
 **Master-Master**: Bidirectional sync between databases
 - Changes from master are synced to slave
 - Changes from slave are synced back to master
-- **With timestamp tracking enabled**: Last-write-wins conflict resolution
+- **With timestamp columns configured**: Last-write-wins conflict resolution
   - Updates are compared by timestamp
   - Most recent change wins regardless of origin
-- **Without timestamp tracking**: Master takes precedence
+- **Without timestamp columns**: Master takes precedence
   - Only new records from slave are synced to master
   - Existing master records are not overwritten by slave
 
@@ -117,7 +116,7 @@ The application uses a JSON configuration file. Here's what each setting means:
 - Metadata table tracks last sync time for each row
 
 **Delete Tracking**:
-- When tracking is enabled, a `_replication_metadata` table is created automatically
+- A `_replication_metadata` table is created automatically
 - Rows deleted from source are detected by comparing primary keys
 - Deletions are propagated to target database
 - Delete metadata is maintained for audit purposes

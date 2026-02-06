@@ -10,14 +10,12 @@ class ReplicationEngine
     private $config;
     private $stats;
     private $metadata;
-    private $trackingEnabled;
 
     public function __construct(DatabaseManager $dbManager, $config)
     {
         $this->dbManager = $dbManager;
         $this->config = $config;
         $this->metadata = new ReplicationMetadata($dbManager);
-        $this->trackingEnabled = $config['replication']['enableTracking'] ?? true;
         $this->stats = [
             'lastSync' => null,
             'totalSyncs' => 0,
@@ -41,11 +39,9 @@ class ReplicationEngine
         $this->stats['deletes'] = 0;
 
         try {
-            // Initialize metadata tables if tracking is enabled
-            if ($this->trackingEnabled) {
-                $this->metadata->initializeMetadataTable('master');
-                $this->metadata->initializeMetadataTable('slave');
-            }
+            // Initialize metadata tables for tracking
+            $this->metadata->initializeMetadataTable('master');
+            $this->metadata->initializeMetadataTable('slave');
 
             if ($this->config['mode'] === 'master-slave') {
                 $this->syncMasterToSlave();
@@ -127,7 +123,7 @@ class ReplicationEngine
                 } else {
                     // Check if update is needed based on timestamp
                     $shouldUpdate = true;
-                    if ($hasTimestamp && $this->trackingEnabled) {
+                    if ($hasTimestamp) {
                         $slaveTimestamp = $exists[0][$timestampColumn] ?? null;
                         $masterTimestamp = $row[$timestampColumn] ?? null;
                         
@@ -144,15 +140,13 @@ class ReplicationEngine
                 }
                 
                 // Record sync in metadata
-                if ($this->trackingEnabled) {
-                    $this->metadata->recordSync('slave', $tableName, $row[$primaryKey]);
-                }
+                $this->metadata->recordSync('slave', $tableName, $row[$primaryKey]);
                 
                 $synced++;
             }
 
             // Handle deletions: find rows in slave that don't exist in master
-            if ($this->trackingEnabled && !empty($masterPrimaryKeys)) {
+            if (!empty($masterPrimaryKeys)) {
                 $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
             }
 
@@ -211,7 +205,7 @@ class ReplicationEngine
                 } else {
                     // Check if update is needed based on timestamp
                     $shouldUpdate = true;
-                    if ($hasTimestamp && $this->trackingEnabled) {
+                    if ($hasTimestamp) {
                         $slaveTimestamp = $exists[0][$timestampColumn] ?? null;
                         $masterTimestamp = $row[$timestampColumn] ?? null;
                         
@@ -227,9 +221,7 @@ class ReplicationEngine
                     }
                 }
                 
-                if ($this->trackingEnabled) {
-                    $this->metadata->recordSync('slave', $tableName, $row[$primaryKey]);
-                }
+                $this->metadata->recordSync('slave', $tableName, $row[$primaryKey]);
                 
                 $synced++;
             }
@@ -252,12 +244,10 @@ class ReplicationEngine
                     $this->stats['inserts']++;
                     $synced++;
                     
-                    if ($this->trackingEnabled) {
-                        $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
-                    }
+                    $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
                 } else {
                     // In master-master mode with timestamp tracking, use last-write-wins
-                    if ($hasTimestamp && $this->trackingEnabled) {
+                    if ($hasTimestamp) {
                         $masterTimestamp = $exists[0][$timestampColumn] ?? null;
                         $slaveTimestamp = $row[$timestampColumn] ?? null;
                         
@@ -268,7 +258,7 @@ class ReplicationEngine
                             $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
                         }
                     }
-                    // Note: Without timestamp tracking, master data takes precedence to avoid conflicts.
+                    // Note: Without timestamp columns, master data takes precedence to avoid conflicts.
                     // Only new records from slave are synced to master. Existing master records
                     // are not overwritten by slave data. This prevents bi-directional conflicts
                     // where simultaneous updates on both sides could cause inconsistency.
@@ -276,15 +266,13 @@ class ReplicationEngine
             }
 
             // Handle deletions for bidirectional sync
-            if ($this->trackingEnabled) {
-                // Sync deletions from master to slave
-                if (!empty($masterPrimaryKeys)) {
-                    $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
-                }
-                // Sync deletions from slave to master
-                if (!empty($slavePrimaryKeys)) {
-                    $this->handleDeletions('master', $tableName, $primaryKey, $slavePrimaryKeys);
-                }
+            // Sync deletions from master to slave
+            if (!empty($masterPrimaryKeys)) {
+                $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
+            }
+            // Sync deletions from slave to master
+            if (!empty($slavePrimaryKeys)) {
+                $this->handleDeletions('master', $tableName, $primaryKey, $slavePrimaryKeys);
             }
 
             $this->stats['tablesProcessed'][$tableName] = [

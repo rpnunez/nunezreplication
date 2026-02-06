@@ -198,8 +198,8 @@ function testTimestampConflictResolution($config) {
         echo "   Sync completed\n";
         
         // For master-slave mode, master always wins regardless of timestamp
-        // For master-master mode with tracking, newer timestamp should win
-        if ($config['mode'] === 'master-master' && ($config['replication']['enableTracking'] ?? true)) {
+        // For master-master mode, newer timestamp should win
+        if ($config['mode'] === 'master-master') {
             echo "3. Verifying last-write-wins for master-master mode...\n";
             $slaveCustomer = $dbManager->query('slave', 
                 "SELECT address FROM customers WHERE email = ?", 
