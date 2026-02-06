@@ -2,5 +2,6 @@
 *.log
 .DS_Store
 .env
+config.json
 config.local.json
 composer.lock
