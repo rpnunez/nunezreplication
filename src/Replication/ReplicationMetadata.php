@@ -29,7 +29,7 @@ class ReplicationMetadata
             last_sync_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             is_deleted BOOLEAN DEFAULT FALSE,
             deleted_at TIMESTAMP NULL,
-            INDEX idx_table_pk (table_name, primary_key_value),
+            UNIQUE KEY uk_table_pk (table_name, primary_key_value),
             INDEX idx_deleted (is_deleted, deleted_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
         
@@ -48,15 +48,6 @@ class ReplicationMetadata
                 last_sync_timestamp = NOW(),
                 is_deleted = FALSE,
                 deleted_at = NULL";
-        
-        // Create unique key if not exists
-        try {
-            $this->dbManager->execute($dbName, 
-                "ALTER TABLE `{$this->metadataTableName}` 
-                 ADD UNIQUE KEY uk_table_pk (table_name, primary_key_value)");
-        } catch (\Exception $e) {
-            // Unique key might already exist, that's okay
-        }
         
         $this->dbManager->execute($dbName, $sql, [$tableName, (string)$primaryKeyValue]);
     }

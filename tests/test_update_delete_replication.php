@@ -168,20 +168,22 @@ function testTimestampConflictResolution($config) {
         
         echo "1. Creating conflicting updates with different timestamps...\n";
         
-        // Update in master (older timestamp)
-        sleep(1); // Ensure time difference
+        // Update in master with explicitly older timestamp
+        $olderTime = date('Y-m-d H:i:s', strtotime('-2 minutes'));
         $dbManager->execute('master', 
             "UPDATE customers SET address = ?, updated_at = ? WHERE email = ?", 
-            ['100 Old Address St', date('Y-m-d H:i:s', time() - 60), 'john.doe@example.com']
+            ['100 Old Address St', $olderTime, 'john.doe@example.com']
         );
         
-        // Update in slave (newer timestamp)
+        // Update in slave with explicitly newer timestamp
+        $newerTime = date('Y-m-d H:i:s', strtotime('-1 minute'));
         $dbManager->execute('slave', 
             "UPDATE customers SET address = ?, updated_at = ? WHERE email = ?", 
-            ['200 New Address Ave', date('Y-m-d H:i:s'), 'john.doe@example.com']
+            ['200 New Address Ave', $newerTime, 'john.doe@example.com']
         );
         
-        echo "   Created conflicting updates\n";
+        echo "   Master timestamp: $olderTime (older)\n";
+        echo "   Slave timestamp: $newerTime (newer)\n";
         
         // Run sync (should prefer newer timestamp)
         echo "2. Running replication sync...\n";

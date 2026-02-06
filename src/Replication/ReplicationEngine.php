@@ -372,6 +372,9 @@ class ReplicationEngine
         $this->validateIdentifier($tableName);
         $this->validateIdentifier($primaryKey);
         
+        // Convert to associative array for O(1) lookups
+        $sourcePkMap = array_flip($sourcePrimaryKeys);
+        
         // Get all primary keys from target
         $targetRows = $this->dbManager->query($targetDbName, "SELECT `$primaryKey` FROM `$tableName`");
         
@@ -379,7 +382,7 @@ class ReplicationEngine
             $targetPk = $targetRow[$primaryKey];
             
             // If this row doesn't exist in source, it was deleted
-            if (!in_array($targetPk, $sourcePrimaryKeys)) {
+            if (!isset($sourcePkMap[$targetPk])) {
                 // Delete from target
                 $sql = "DELETE FROM `$tableName` WHERE `$primaryKey` = ?";
                 $this->dbManager->execute($targetDbName, $sql, [$targetPk]);
