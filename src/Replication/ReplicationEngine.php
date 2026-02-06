@@ -68,21 +68,30 @@ class ReplicationEngine
             $ignoreColumns = $tableConfig['ignoreColumns'] ?? [];
             $primaryKey = $tableConfig['primaryKey'];
 
+            // Validate identifiers
+            $this->validateIdentifier($tableName);
+            $this->validateIdentifier($primaryKey);
+
             error_log("Syncing table: $tableName");
 
             // Get all columns from master table
             $columns = $this->getTableColumns('master', $tableName);
             $columns = array_diff($columns, $ignoreColumns);
+            
+            // Validate column names
+            foreach ($columns as $col) {
+                $this->validateIdentifier($col);
+            }
 
             // Get all rows from master
-            $masterRows = $this->dbManager->query('master', "SELECT " . implode(', ', $columns) . " FROM $tableName");
+            $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
 
             $synced = 0;
             foreach ($masterRows as $row) {
                 // Check if row exists in slave
                 $exists = $this->dbManager->query(
                     'slave',
-                    "SELECT $primaryKey FROM $tableName WHERE $primaryKey = ?",
+                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
@@ -112,20 +121,29 @@ class ReplicationEngine
             $ignoreColumns = $tableConfig['ignoreColumns'] ?? [];
             $primaryKey = $tableConfig['primaryKey'];
 
+            // Validate identifiers
+            $this->validateIdentifier($tableName);
+            $this->validateIdentifier($primaryKey);
+
             error_log("Bidirectional sync for table: $tableName");
 
             // Get all columns
             $columns = $this->getTableColumns('master', $tableName);
             $columns = array_diff($columns, $ignoreColumns);
+            
+            // Validate column names
+            foreach ($columns as $col) {
+                $this->validateIdentifier($col);
+            }
 
             // Sync master -> slave
-            $masterRows = $this->dbManager->query('master', "SELECT " . implode(', ', $columns) . " FROM $tableName");
+            $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
             $synced = 0;
             
             foreach ($masterRows as $row) {
                 $exists = $this->dbManager->query(
                     'slave',
-                    "SELECT $primaryKey FROM $tableName WHERE $primaryKey = ?",
+                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
@@ -138,12 +156,12 @@ class ReplicationEngine
             }
 
             // Sync slave -> master
-            $slaveRows = $this->dbManager->query('slave', "SELECT " . implode(', ', $columns) . " FROM $tableName");
+            $slaveRows = $this->dbManager->query('slave', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
             
             foreach ($slaveRows as $row) {
                 $exists = $this->dbManager->query(
                     'master',
-                    "SELECT $primaryKey FROM $tableName WHERE $primaryKey = ?",
+                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
@@ -151,7 +169,10 @@ class ReplicationEngine
                     $this->insertRow('master', $tableName, $row);
                     $synced++;
                 }
-                // Note: In master-master, we don't overwrite master data from slave
+                // Note: In master-master mode, master data takes precedence to avoid conflicts.
+                // Only new records from slave are synced to master. Existing master records
+                // are not overwritten by slave data. This prevents bi-directional conflicts
+                // where simultaneous updates on both sides could cause inconsistency.
             }
 
             $this->stats['tablesProcessed'][$tableName] = [
@@ -165,21 +186,38 @@ class ReplicationEngine
 
     private function getTableColumns($dbName, $tableName)
     {
-        $columns = $this->dbManager->query($dbName, "SHOW COLUMNS FROM $tableName");
+        // Validate table name to prevent SQL injection
+        $this->validateIdentifier($tableName);
+        $columns = $this->dbManager->query($dbName, "SHOW COLUMNS FROM `$tableName`");
         return array_map(function($col) {
             return $col['Field'];
         }, $columns);
     }
 
+    private function validateIdentifier($identifier)
+    {
+        // Validate that identifier is safe (alphanumeric and underscores only)
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $identifier)) {
+            throw new \Exception("Invalid identifier: $identifier. Only alphanumeric characters and underscores are allowed.");
+        }
+    }
+
     private function insertRow($dbName, $tableName, $row)
     {
+        // Validate identifiers
+        $this->validateIdentifier($tableName);
+        
         $columns = array_keys($row);
+        foreach ($columns as $col) {
+            $this->validateIdentifier($col);
+        }
+        
         $placeholders = array_fill(0, count($columns), '?');
         
         $sql = sprintf(
-            "INSERT INTO %s (%s) VALUES (%s)",
+            "INSERT INTO `%s` (`%s`) VALUES (%s)",
             $tableName,
-            implode(', ', $columns),
+            implode('`, `', $columns),
             implode(', ', $placeholders)
         );
         
@@ -188,13 +226,21 @@ class ReplicationEngine
 
     private function updateRow($dbName, $tableName, $row, $primaryKey)
     {
+        // Validate identifiers
+        $this->validateIdentifier($tableName);
+        $this->validateIdentifier($primaryKey);
+        
         $columns = array_keys($row);
+        foreach ($columns as $col) {
+            $this->validateIdentifier($col);
+        }
+        
         $setClauses = array_map(function($col) {
-            return "$col = ?";
+            return "`$col` = ?";
         }, $columns);
         
         $sql = sprintf(
-            "UPDATE %s SET %s WHERE %s = ?",
+            "UPDATE `%s` SET %s WHERE `%s` = ?",
             $tableName,
             implode(', ', $setClauses),
             $primaryKey

@@ -160,7 +160,7 @@ async function triggerSync() {
         await fetchStatus();
     } catch (error) {
         resultDiv.className = 'error';
-        resultDiv.textContent = `✗ Error: ${error.message}`;
+        resultDiv.textContent = '✗ Error: Failed to trigger sync. Please try again.';
     } finally {
         button.disabled = false;
         button.textContent = 'Trigger Manual Sync';

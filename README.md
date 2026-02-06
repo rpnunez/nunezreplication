@@ -46,7 +46,7 @@ The application uses a JSON configuration file. Here's what each setting means:
 {
   "mode": "master-slave",           // Replication mode: "master-slave" or "master-master"
   "syncInterval": "*/5 * * * *",    // Cron expression for sync schedule
-  "port": 3000,                      // Web server port (for reference)
+  "port": 8080,                      // Web server port (for reference)
   "databases": {
     "master": {
       "host": "localhost",
