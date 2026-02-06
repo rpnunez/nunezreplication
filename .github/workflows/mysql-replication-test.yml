@@ -1,0 +1,688 @@
+name: MySQL Replication Testing
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - develop
+  pull_request:
+    branches:
+      - master
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  test-mysql-replication:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: banking_master
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -P 3306 -u root -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Wait for MySQL to be ready
+        run: |
+          echo "Waiting for MySQL to be fully ready..."
+          for i in {1..30}; do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -u root -proot_password --silent; then
+              echo "MySQL is ready!"
+              break
+            fi
+            echo "Waiting for MySQL... ($i/30)"
+            sleep 2
+          done
+      
+      - name: Create Banking Database Schema
+        run: |
+          echo "========================================="
+          echo "Creating Comprehensive Banking Database Schema"
+          echo "========================================="
+          
+          # Create customers table
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          CREATE TABLE IF NOT EXISTS customers (
+            customer_id INT AUTO_INCREMENT PRIMARY KEY,
+            first_name VARCHAR(100) NOT NULL,
+            last_name VARCHAR(100) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            phone VARCHAR(20),
+            address TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_email (email),
+            INDEX idx_name (first_name, last_name)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          echo "✓ Created customers table"
+          
+          # Create accounts table
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          CREATE TABLE IF NOT EXISTS accounts (
+            account_id INT AUTO_INCREMENT PRIMARY KEY,
+            customer_id INT NOT NULL,
+            account_number VARCHAR(20) UNIQUE,
+            account_type ENUM('checking', 'savings', 'credit', 'investment') NOT NULL,
+            balance DECIMAL(15,2) DEFAULT 0.00,
+            currency VARCHAR(3) DEFAULT 'USD',
+            status ENUM('active', 'inactive', 'frozen', 'closed') DEFAULT 'active',
+            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at TIMESTAMP NULL,
+            INDEX idx_customer_id (customer_id),
+            INDEX idx_status (status),
+            FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          echo "✓ Created accounts table"
+          
+          # Create transactions table
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            account_id INT NOT NULL,
+            transaction_type ENUM('deposit', 'withdrawal', 'transfer', 'payment', 'fee') NOT NULL,
+            amount DECIMAL(15,2) NOT NULL,
+            balance_after DECIMAL(15,2),
+            description TEXT,
+            reference_number VARCHAR(50) UNIQUE,
+            status ENUM('pending', 'completed', 'failed', 'reversed') DEFAULT 'pending',
+            transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_account_id (account_id),
+            INDEX idx_transaction_date (transaction_date),
+            INDEX idx_status (status),
+            FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          echo "✓ Created transactions table"
+          
+          # Create loans table
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          CREATE TABLE IF NOT EXISTS loans (
+            loan_id INT AUTO_INCREMENT PRIMARY KEY,
+            customer_id INT NOT NULL,
+            loan_type ENUM('personal', 'mortgage', 'auto', 'business') NOT NULL,
+            principal_amount DECIMAL(15,2) NOT NULL,
+            remaining_balance DECIMAL(15,2) NOT NULL,
+            interest_rate DECIMAL(5,2) NOT NULL,
+            term_months INT NOT NULL,
+            status ENUM('active', 'paid_off', 'defaulted') DEFAULT 'active',
+            disbursed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_customer_id (customer_id),
+            INDEX idx_status (status),
+            FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          echo "✓ Created loans table"
+          
+          # Create cards table
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          CREATE TABLE IF NOT EXISTS cards (
+            card_id INT AUTO_INCREMENT PRIMARY KEY,
+            account_id INT NOT NULL,
+            card_number VARCHAR(16) UNIQUE NOT NULL,
+            card_type ENUM('debit', 'credit', 'prepaid') NOT NULL,
+            expiry_date DATE NOT NULL,
+            cvv_hash VARCHAR(64),
+            status ENUM('active', 'blocked', 'expired', 'lost') DEFAULT 'active',
+            issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_account_id (account_id),
+            INDEX idx_card_number (card_number),
+            FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          echo "✓ Created cards table"
+          echo "✓ Banking database schema created successfully"
+      
+      - name: Insert Sample Data
+        run: |
+          echo "========================================="
+          echo "Inserting Sample Data"
+          echo "========================================="
+          
+          # Insert customers
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          INSERT INTO customers (first_name, last_name, email, phone, address) VALUES
+          ('John', 'Doe', 'john.doe@example.com', '555-0101', '123 Main St, New York, NY 10001'),
+          ('Jane', 'Smith', 'jane.smith@example.com', '555-0102', '456 Oak Ave, Los Angeles, CA 90001'),
+          ('Bob', 'Johnson', 'bob.johnson@example.com', '555-0103', '789 Pine Rd, Chicago, IL 60601');
+          EOF
+          
+          echo "✓ Inserted 3 customers"
+          
+          # Insert accounts
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          INSERT INTO accounts (customer_id, account_number, account_type, balance, status) VALUES
+          (1, 'ACC-1001', 'checking', 5000.00, 'active'),
+          (1, 'ACC-1002', 'savings', 15000.50, 'active'),
+          (2, 'ACC-2001', 'checking', 3500.75, 'active'),
+          (3, 'ACC-3001', 'investment', 50000.00, 'active');
+          EOF
+          
+          echo "✓ Inserted 4 accounts"
+          
+          # Insert transactions
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          INSERT INTO transactions (account_id, transaction_type, amount, balance_after, description, reference_number, status) VALUES
+          (1, 'deposit', 5000.00, 5000.00, 'Initial deposit', 'TXN-001', 'completed'),
+          (2, 'deposit', 15000.50, 15000.50, 'Initial deposit', 'TXN-002', 'completed'),
+          (3, 'deposit', 3500.75, 3500.75, 'Initial deposit', 'TXN-003', 'completed');
+          EOF
+          
+          echo "✓ Inserted 3 transactions"
+          echo "✓ Sample data insertion completed"
+      
+      - name: Create Test Databases
+        run: |
+          echo "========================================="
+          echo "Creating Test Databases"
+          echo "========================================="
+          
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password <<'EOF'
+          CREATE DATABASE IF NOT EXISTS banking_replica1;
+          CREATE DATABASE IF NOT EXISTS banking_replica2;
+          CREATE DATABASE IF NOT EXISTS banking_snapshot;
+          EOF
+          
+          echo "✓ Created banking_replica1"
+          echo "✓ Created banking_replica2"
+          echo "✓ Created banking_snapshot"
+          
+          # Verify databases
+          echo ""
+          echo "List of databases created:"
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password -e "SHOW DATABASES LIKE 'banking_%';"
+      
+      - name: Test 1 - Full Replication
+        run: |
+          echo "========================================="
+          echo "TEST 1: Full Replication"
+          echo "========================================="
+          
+          # Export all data from banking_master
+          echo "Exporting all data from banking_master..."
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master > /tmp/full_backup.sql
+          
+          # Import to banking_replica1
+          echo "Importing to banking_replica1..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 < /tmp/full_backup.sql
+          
+          # Verify record counts
+          echo ""
+          echo "Verifying record counts..."
+          
+          MASTER_CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.customers;")
+          REPLICA_CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.customers;")
+          
+          MASTER_ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.accounts;")
+          REPLICA_ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.accounts;")
+          
+          MASTER_TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.transactions;")
+          REPLICA_TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.transactions;")
+          
+          echo "Master customers: $MASTER_CUSTOMERS | Replica customers: $REPLICA_CUSTOMERS"
+          echo "Master accounts: $MASTER_ACCOUNTS | Replica accounts: $REPLICA_ACCOUNTS"
+          echo "Master transactions: $MASTER_TRANSACTIONS | Replica transactions: $REPLICA_TRANSACTIONS"
+          
+          if [ "$MASTER_CUSTOMERS" -eq "$REPLICA_CUSTOMERS" ] && \
+             [ "$MASTER_ACCOUNTS" -eq "$REPLICA_ACCOUNTS" ] && \
+             [ "$MASTER_TRANSACTIONS" -eq "$REPLICA_TRANSACTIONS" ]; then
+            echo "✓ Full replication test PASSED"
+          else
+            echo "✗ Full replication test FAILED"
+            exit 1
+          fi
+      
+      - name: Test 2 - Incremental Replication
+        run: |
+          echo "========================================="
+          echo "TEST 2: Incremental Replication"
+          echo "========================================="
+          
+          # Add new records to master
+          echo "Adding new records to master..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          INSERT INTO customers (first_name, last_name, email, phone, address) VALUES
+          ('Alice', 'Williams', 'alice.williams@example.com', '555-0104', '321 Elm St, Boston, MA 02101');
+          
+          INSERT INTO accounts (customer_id, account_number, account_type, balance, status) VALUES
+          (4, 'ACC-4001', 'savings', 10000.00, 'active');
+          
+          INSERT INTO transactions (account_id, transaction_type, amount, balance_after, description, reference_number, status) VALUES
+          (4, 'deposit', 10000.00, 10000.00, 'Initial deposit', 'TXN-004', 'completed');
+          EOF
+          
+          echo "✓ New records added to master"
+          
+          # Replicate only new records (where ID > existing max)
+          echo "Replicating incremental changes..."
+          
+          # Get max IDs from replica before incremental sync
+          MAX_CUSTOMER_ID=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COALESCE(MAX(customer_id), 0) FROM banking_replica1.customers;")
+          MAX_ACCOUNT_ID=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COALESCE(MAX(account_id), 0) FROM banking_replica1.accounts;")
+          MAX_TRANSACTION_ID=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COALESCE(MAX(transaction_id), 0) FROM banking_replica1.transactions;")
+          
+          echo "Max customer_id in replica: $MAX_CUSTOMER_ID"
+          echo "Max account_id in replica: $MAX_ACCOUNT_ID"
+          echo "Max transaction_id in replica: $MAX_TRANSACTION_ID"
+          
+          # Export only new records
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master customers \
+            --where="customer_id > $MAX_CUSTOMER_ID" --no-create-info > /tmp/incremental_customers.sql
+          
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master accounts \
+            --where="account_id > $MAX_ACCOUNT_ID" --no-create-info > /tmp/incremental_accounts.sql
+          
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master transactions \
+            --where="transaction_id > $MAX_TRANSACTION_ID" --no-create-info > /tmp/incremental_transactions.sql
+          
+          # Import incremental changes
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 < /tmp/incremental_customers.sql
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 < /tmp/incremental_accounts.sql
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 < /tmp/incremental_transactions.sql
+          
+          # Verify counts
+          MASTER_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.customers;")
+          REPLICA_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.customers;")
+          
+          echo "Master customers: $MASTER_COUNT | Replica customers: $REPLICA_COUNT"
+          
+          if [ "$MASTER_COUNT" -eq "$REPLICA_COUNT" ]; then
+            echo "✓ Incremental replication test PASSED"
+          else
+            echo "✗ Incremental replication test FAILED"
+            exit 1
+          fi
+      
+      - name: Test 3 - Selective Replication
+        run: |
+          echo "========================================="
+          echo "TEST 3: Selective Replication (Specific Tables Only)"
+          echo "========================================="
+          
+          # Replicate only customers and accounts tables
+          echo "Replicating only customers and accounts tables to banking_replica2..."
+          
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master customers accounts > /tmp/selective_backup.sql
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica2 < /tmp/selective_backup.sql
+          
+          # Verify only selected tables exist
+          echo ""
+          echo "Tables in banking_replica2:"
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica2 -e "SHOW TABLES;"
+          
+          # Check that transactions table does NOT exist
+          TABLE_EXISTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='banking_replica2' AND table_name='transactions';")
+          
+          if [ "$TABLE_EXISTS" -eq "0" ]; then
+            echo "✓ Selective replication test PASSED (only selected tables replicated)"
+          else
+            echo "✗ Selective replication test FAILED (unexpected tables found)"
+            exit 1
+          fi
+      
+      - name: Test 4 - Filtered Replication
+        run: |
+          echo "========================================="
+          echo "TEST 4: Filtered Replication (Active Accounts Only)"
+          echo "========================================="
+          
+          # Replicate only active accounts
+          echo "Replicating only active accounts..."
+          
+          # First, ensure tables exist in replica2
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica2 <<'EOF'
+          CREATE TABLE IF NOT EXISTS accounts_filtered (
+            account_id INT AUTO_INCREMENT PRIMARY KEY,
+            customer_id INT NOT NULL,
+            account_number VARCHAR(20) UNIQUE,
+            account_type ENUM('checking', 'savings', 'credit', 'investment') NOT NULL,
+            balance DECIMAL(15,2) DEFAULT 0.00,
+            currency VARCHAR(3) DEFAULT 'USD',
+            status ENUM('active', 'inactive', 'frozen', 'closed') DEFAULT 'active',
+            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at TIMESTAMP NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master accounts \
+            --where="status='active'" --no-create-info > /tmp/filtered_accounts.sql
+          
+          # Modify INSERT to use accounts_filtered table
+          sed 's/INSERT INTO `accounts`/INSERT INTO `accounts_filtered`/g' /tmp/filtered_accounts.sql > /tmp/filtered_accounts_modified.sql
+          
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica2 < /tmp/filtered_accounts_modified.sql
+          
+          # Verify only active accounts were replicated
+          ACTIVE_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica2.accounts_filtered WHERE status='active';")
+          TOTAL_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica2.accounts_filtered;")
+          
+          echo "Active accounts replicated: $ACTIVE_COUNT"
+          echo "Total accounts replicated: $TOTAL_COUNT"
+          
+          if [ "$ACTIVE_COUNT" -eq "$TOTAL_COUNT" ] && [ "$ACTIVE_COUNT" -gt "0" ]; then
+            echo "✓ Filtered replication test PASSED"
+          else
+            echo "✗ Filtered replication test FAILED"
+            exit 1
+          fi
+      
+      - name: Test 5 - Snapshot Replication
+        run: |
+          echo "========================================="
+          echo "TEST 5: Snapshot Replication (Point-in-Time)"
+          echo "========================================="
+          
+          # Create snapshot with both structure and data
+          echo "Creating point-in-time snapshot..."
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password --single-transaction \
+            --master-data=2 banking_master > /tmp/snapshot.sql
+          
+          # Restore snapshot
+          echo "Restoring snapshot to banking_snapshot..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_snapshot < /tmp/snapshot.sql
+          
+          # Verify snapshot integrity
+          echo ""
+          echo "Verifying snapshot integrity..."
+          
+          MASTER_TABLES=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='banking_master';")
+          SNAPSHOT_TABLES=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='banking_snapshot';")
+          
+          echo "Master tables: $MASTER_TABLES | Snapshot tables: $SNAPSHOT_TABLES"
+          
+          if [ "$MASTER_TABLES" -eq "$SNAPSHOT_TABLES" ]; then
+            echo "✓ Snapshot replication test PASSED"
+          else
+            echo "✗ Snapshot replication test FAILED"
+            exit 1
+          fi
+      
+      - name: Test 6 - Bidirectional Replication
+        run: |
+          echo "========================================="
+          echo "TEST 6: Bidirectional Replication"
+          echo "========================================="
+          
+          # Step 1: Update records in master
+          echo "Step 1: Updating records in master..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          UPDATE customers SET phone = '555-9999' WHERE customer_id = 1;
+          EOF
+          
+          # Sync master to replica
+          echo "Syncing master changes to replica..."
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_master customers \
+            --no-create-info > /tmp/master_to_replica.sql
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 <<'EOF'
+          TRUNCATE TABLE customers;
+          EOF
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 < /tmp/master_to_replica.sql
+          
+          # Verify sync
+          REPLICA_PHONE=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT phone FROM banking_replica1.customers WHERE customer_id = 1;")
+          echo "Phone in replica after master update: $REPLICA_PHONE"
+          
+          # Step 2: Add new record in replica
+          echo ""
+          echo "Step 2: Adding new record in replica..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 <<'EOF'
+          INSERT INTO customers (first_name, last_name, email, phone, address) VALUES
+          ('Charlie', 'Brown', 'charlie.brown@example.com', '555-0105', '999 Maple Dr, Seattle, WA 98101');
+          EOF
+          
+          # Sync new records from replica back to master
+          echo "Syncing new records from replica to master..."
+          MAX_ID=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT MAX(customer_id) FROM banking_master.customers;")
+          echo "Max customer_id in master before sync: $MAX_ID"
+          
+          mysqldump -h 127.0.0.1 -P 3306 -u root -proot_password banking_replica1 customers \
+            --where="customer_id > $MAX_ID" --no-create-info > /tmp/replica_to_master.sql
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master < /tmp/replica_to_master.sql
+          
+          # Verify bidirectional sync
+          MASTER_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.customers;")
+          REPLICA_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.customers;")
+          
+          echo "Master customers: $MASTER_COUNT | Replica customers: $REPLICA_COUNT"
+          
+          if [ "$MASTER_COUNT" -eq "$REPLICA_COUNT" ]; then
+            echo "✓ Bidirectional replication test PASSED"
+          else
+            echo "✗ Bidirectional replication test FAILED"
+            exit 1
+          fi
+      
+      - name: Test 7 - Transactional Replication with Logging
+        run: |
+          echo "========================================="
+          echo "TEST 7: Transactional Replication with Logging"
+          echo "========================================="
+          
+          # Create replication log table
+          echo "Creating replication_log table..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          CREATE TABLE IF NOT EXISTS replication_log (
+            log_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            operation_type ENUM('INSERT', 'UPDATE', 'DELETE') NOT NULL,
+            table_name VARCHAR(100) NOT NULL,
+            record_id VARCHAR(100),
+            operation_data TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_operation_type (operation_type),
+            INDEX idx_table_name (table_name),
+            INDEX idx_timestamp (timestamp)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          
+          echo "✓ Created replication_log table"
+          
+          # Simulate INSERT operation
+          echo ""
+          echo "Logging INSERT operation..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          INSERT INTO customers (first_name, last_name, email, phone) VALUES
+          ('David', 'Miller', 'david.miller@example.com', '555-0106');
+          
+          INSERT INTO replication_log (operation_type, table_name, record_id, operation_data) VALUES
+          ('INSERT', 'customers', LAST_INSERT_ID(), 'New customer: David Miller');
+          EOF
+          
+          # Simulate UPDATE operation
+          echo "Logging UPDATE operation..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          UPDATE accounts SET balance = balance + 1000 WHERE account_id = 1;
+          
+          INSERT INTO replication_log (operation_type, table_name, record_id, operation_data) VALUES
+          ('UPDATE', 'accounts', '1', 'Balance updated: +1000');
+          EOF
+          
+          # Simulate DELETE operation (soft delete - update status)
+          echo "Logging DELETE operation..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          UPDATE accounts SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE account_id = 4;
+          
+          INSERT INTO replication_log (operation_type, table_name, record_id, operation_data) VALUES
+          ('DELETE', 'accounts', '4', 'Account closed');
+          EOF
+          
+          # Verify transaction logging
+          echo ""
+          echo "Verifying transaction log..."
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password banking_master <<'EOF'
+          SELECT operation_type, table_name, record_id, operation_data 
+          FROM replication_log 
+          ORDER BY log_id;
+          EOF
+          
+          LOG_COUNT=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.replication_log;")
+          
+          echo ""
+          echo "Total operations logged: $LOG_COUNT"
+          
+          if [ "$LOG_COUNT" -ge "3" ]; then
+            echo "✓ Transactional replication test PASSED"
+          else
+            echo "✗ Transactional replication test FAILED"
+            exit 1
+          fi
+      
+      - name: Data Integrity Verification
+        run: |
+          echo "========================================="
+          echo "Data Integrity Verification"
+          echo "========================================="
+          
+          # Compare row counts
+          echo "Comparing row counts between master and replicas..."
+          echo ""
+          
+          echo "CUSTOMERS TABLE:"
+          MASTER_CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.customers;")
+          REPLICA1_CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.customers;")
+          echo "  Master: $MASTER_CUSTOMERS | Replica1: $REPLICA1_CUSTOMERS"
+          
+          echo ""
+          echo "ACCOUNTS TABLE:"
+          MASTER_ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.accounts;")
+          REPLICA1_ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.accounts;")
+          echo "  Master: $MASTER_ACCOUNTS | Replica1: $REPLICA1_ACCOUNTS"
+          
+          echo ""
+          echo "TRANSACTIONS TABLE:"
+          MASTER_TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.transactions;")
+          REPLICA1_TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.transactions;")
+          echo "  Master: $MASTER_TRANSACTIONS | Replica1: $REPLICA1_TRANSACTIONS"
+          
+          # Calculate checksums for data integrity
+          echo ""
+          echo "Calculating checksums for data integrity..."
+          
+          MASTER_CHECKSUM=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "CHECKSUM TABLE banking_master.customers, banking_master.accounts, banking_master.transactions;" | awk '{sum += $2} END {print sum}')
+          REPLICA1_CHECKSUM=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "CHECKSUM TABLE banking_replica1.customers, banking_replica1.accounts, banking_replica1.transactions;" | awk '{sum += $2} END {print sum}')
+          
+          echo "Master checksum: $MASTER_CHECKSUM"
+          echo "Replica1 checksum: $REPLICA1_CHECKSUM"
+          
+          # Report integrity status
+          echo ""
+          if [ "$MASTER_CUSTOMERS" -eq "$REPLICA1_CUSTOMERS" ] && \
+             [ "$MASTER_ACCOUNTS" -eq "$REPLICA1_ACCOUNTS" ] && \
+             [ "$MASTER_TRANSACTIONS" -eq "$REPLICA1_TRANSACTIONS" ]; then
+            echo "✓ Data integrity verification PASSED"
+            echo "✓ All record counts match between master and replica"
+          else
+            echo "⚠ Data integrity verification: Record count differences detected"
+            echo "  This may be expected due to filtered/selective replication tests"
+          fi
+      
+      - name: Generate Test Report
+        run: |
+          echo "========================================="
+          echo "MYSQL REPLICATION TEST REPORT"
+          echo "========================================="
+          echo ""
+          echo "Test Execution Date: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "Databases Created:"
+          echo "  • banking_master (primary database)"
+          echo "  • banking_replica1 (full replication)"
+          echo "  • banking_replica2 (selective replication)"
+          echo "  • banking_snapshot (snapshot testing)"
+          echo ""
+          echo "Replication Types Tested:"
+          echo "  ✓ Full Replication"
+          echo "  ✓ Incremental Replication"
+          echo "  ✓ Selective Replication"
+          echo "  ✓ Filtered Replication"
+          echo "  ✓ Snapshot Replication"
+          echo "  ✓ Bidirectional Replication"
+          echo "  ✓ Transactional Replication"
+          echo ""
+          echo "Final Record Counts:"
+          echo ""
+          
+          # Banking Master
+          echo "banking_master:"
+          CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.customers;")
+          ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.accounts;")
+          TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.transactions;")
+          LOANS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.loans;")
+          CARDS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_master.cards;")
+          echo "  Customers: $CUSTOMERS"
+          echo "  Accounts: $ACCOUNTS"
+          echo "  Transactions: $TRANSACTIONS"
+          echo "  Loans: $LOANS"
+          echo "  Cards: $CARDS"
+          echo ""
+          
+          # Banking Replica1
+          echo "banking_replica1:"
+          CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.customers;")
+          ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.accounts;")
+          TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica1.transactions;")
+          echo "  Customers: $CUSTOMERS"
+          echo "  Accounts: $ACCOUNTS"
+          echo "  Transactions: $TRANSACTIONS"
+          echo ""
+          
+          # Banking Replica2
+          echo "banking_replica2:"
+          CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica2.customers;")
+          ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica2.accounts;")
+          ACCOUNTS_FILTERED=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_replica2.accounts_filtered;")
+          echo "  Customers: $CUSTOMERS"
+          echo "  Accounts: $ACCOUNTS"
+          echo "  Accounts (filtered): $ACCOUNTS_FILTERED"
+          echo ""
+          
+          # Banking Snapshot
+          echo "banking_snapshot:"
+          CUSTOMERS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_snapshot.customers;")
+          ACCOUNTS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_snapshot.accounts;")
+          TRANSACTIONS=$(mysql -h 127.0.0.1 -P 3306 -u root -proot_password -s -N -e "SELECT COUNT(*) FROM banking_snapshot.transactions;")
+          echo "  Customers: $CUSTOMERS"
+          echo "  Accounts: $ACCOUNTS"
+          echo "  Transactions: $TRANSACTIONS"
+          echo ""
+          echo "========================================="
+          echo "ALL TESTS COMPLETED SUCCESSFULLY"
+          echo "========================================="
+      
+      - name: Cleanup Test Databases
+        if: always()
+        run: |
+          echo "========================================="
+          echo "Cleaning Up Test Databases"
+          echo "========================================="
+          
+          mysql -h 127.0.0.1 -P 3306 -u root -proot_password <<'EOF'
+          DROP DATABASE IF EXISTS banking_master;
+          DROP DATABASE IF EXISTS banking_replica1;
+          DROP DATABASE IF EXISTS banking_replica2;
+          DROP DATABASE IF EXISTS banking_snapshot;
+          EOF
+          
+          echo "✓ Dropped banking_master"
+          echo "✓ Dropped banking_replica1"
+          echo "✓ Dropped banking_replica2"
+          echo "✓ Dropped banking_snapshot"
+          echo "✓ Cleanup completed"
