@@ -216,6 +216,43 @@ nunezreplication/
 - Add database indexes on primary keys
 - Monitor database server resources
 
+## Testing
+
+The project includes automated tests that run via GitHub Actions. The test suite validates both Master-Slave and Master-Master replication modes using a banking application schema.
+
+### Running Tests Locally
+
+To run the replication tests locally, you'll need:
+- MySQL 5.7 or higher (with multiple instances on different ports)
+- PHP 7.4 or higher
+- Composer
+
+1. Set up two MySQL instances (e.g., on ports 3306 and 3307)
+2. Initialize the databases with the banking schema:
+   ```bash
+   mysql -h 127.0.0.1 -P 3306 -u root -p database1 < tests/banking_schema.sql
+   mysql -h 127.0.0.1 -P 3307 -u root -p database2 < tests/banking_schema.sql
+   ```
+3. Create a test configuration file (e.g., `config.test.json`)
+4. Run the sync:
+   ```bash
+   php src/sync.php config.test.json
+   ```
+5. Verify the replication:
+   ```bash
+   php tests/test_replication.php config.test.json
+   ```
+
+### GitHub Actions Workflow
+
+The CI/CD pipeline automatically tests:
+- **Master-Slave Replication**: Verifies one-way data synchronization
+- **Master-Master Replication**: Validates bidirectional sync with conflict resolution
+- **API Endpoints**: Tests status, config, and manual sync triggers
+- **Data Integrity**: Ensures data consistency across databases
+
+The workflow uses a banking application schema with customers, accounts, and transactions tables to simulate real-world replication scenarios.
+
 ## License
 
 ISC
