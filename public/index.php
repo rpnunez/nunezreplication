@@ -12,12 +12,21 @@ use NunezReplication\Api\ApiController;
 $configLoader = new ConfigLoader();
 $config = $configLoader->load();
 
-// Initialize database connections
+// Initialize database connections (only if not in demo mode)
 $dbManager = new DatabaseManager();
-$dbManager->connect('master', $config['databases']['master']);
+$demoMode = $config['demoMode'] ?? false;
 
-if (isset($config['databases']['slave'])) {
-    $dbManager->connect('slave', $config['databases']['slave']);
+if (!$demoMode) {
+    try {
+        $dbManager->connect('master', $config['databases']['master']);
+        if (isset($config['databases']['slave'])) {
+            $dbManager->connect('slave', $config['databases']['slave']);
+        }
+    } catch (Exception $e) {
+        error_log("Database connection error: " . $e->getMessage());
+        // Continue in demo mode if connections fail
+        $demoMode = true;
+    }
 }
 
 // Initialize replication engine

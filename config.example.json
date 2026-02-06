@@ -1,7 +1,8 @@
 {
   "mode": "master-slave",
   "syncInterval": "*/5 * * * *",
-  "port": 3000,
+  "port": 8080,
+  "demoMode": true,
   "databases": {
     "master": {
       "host": "localhost",
