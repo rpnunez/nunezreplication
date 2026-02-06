@@ -14,7 +14,8 @@ echo "[" . date('Y-m-d H:i:s') . "] Starting replication sync...\n";
 try {
     // Load configuration
     $configLoader = new ConfigLoader();
-    $config = $configLoader->load();
+    $configPath = isset($argv[1]) ? $argv[1] : null;
+    $config = $configLoader->load($configPath);
 
     // Initialize database connections
     $dbManager = new DatabaseManager();
