@@ -1,0 +1,6 @@
+/vendor/
+*.log
+.DS_Store
+.env
+config.local.json
+composer.lock

@@ -1,0 +1,22 @@
+{
+    "name": "rpnunez/nunezreplication",
+    "description": "MySQL Database Replication Application with Master-Master and Master-Slave support",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "NunezReplication\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "rpnunez"
+        }
+    ],
+    "license": "ISC"
+}
