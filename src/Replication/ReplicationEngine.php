@@ -105,6 +105,11 @@ class ReplicationEngine
             // Track primary keys we've seen in master (for deletion detection)
             $masterPrimaryKeys = [];
             
+            // Track per-table stats
+            $tableInserts = 0;
+            $tableUpdates = 0;
+            $tableDeletes = 0;
+            
             $synced = 0;
             foreach ($masterRows as $row) {
                 $masterPrimaryKeys[] = $row[$primaryKey];
@@ -120,6 +125,7 @@ class ReplicationEngine
                     // Insert new row
                     $this->insertRow('slave', $tableName, $row);
                     $this->stats['inserts']++;
+                    $tableInserts++;
                 } else {
                     // Check if update is needed based on timestamp
                     $shouldUpdate = true;
@@ -136,6 +142,7 @@ class ReplicationEngine
                     if ($shouldUpdate) {
                         $this->updateRow('slave', $tableName, $row, $primaryKey);
                         $this->stats['updates']++;
+                        $tableUpdates++;
                     }
                 }
                 
@@ -146,16 +153,20 @@ class ReplicationEngine
             }
 
             // Handle deletions: find rows in slave that don't exist in master
-            if (!empty($masterPrimaryKeys)) {
-                $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
-            }
+            // Always check for deletions, even if master is empty (to clear slave)
+            $deletedBefore = $this->stats['deletes'];
+            $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
+            $tableDeletes = $this->stats['deletes'] - $deletedBefore;
 
             $this->stats['tablesProcessed'][$tableName] = [
                 'rows' => $synced,
+                'inserts' => $tableInserts,
+                'updates' => $tableUpdates,
+                'deletes' => $tableDeletes,
                 'timestamp' => date('Y-m-d H:i:s')
             ];
 
-            error_log("Synced $synced rows for table: $tableName (Inserts: {$this->stats['inserts']}, Updates: {$this->stats['updates']}, Deletes: {$this->stats['deletes']})");
+            error_log("Synced $synced rows for table: $tableName (Table stats - Inserts: $tableInserts, Updates: $tableUpdates, Deletes: $tableDeletes)");
         }
     }
 
@@ -185,6 +196,11 @@ class ReplicationEngine
             // Check if timestamp column exists
             $hasTimestamp = in_array($timestampColumn, $columns);
 
+            // Track per-table stats
+            $tableInserts = 0;
+            $tableUpdates = 0;
+            $tableDeletes = 0;
+
             // Sync master -> slave
             $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
             $synced = 0;
@@ -202,6 +218,7 @@ class ReplicationEngine
                 if (empty($exists)) {
                     $this->insertRow('slave', $tableName, $row);
                     $this->stats['inserts']++;
+                    $tableInserts++;
                 } else {
                     // Check if update is needed based on timestamp
                     $shouldUpdate = true;
@@ -218,6 +235,7 @@ class ReplicationEngine
                     if ($shouldUpdate) {
                         $this->updateRow('slave', $tableName, $row, $primaryKey);
                         $this->stats['updates']++;
+                        $tableUpdates++;
                     }
                 }
                 
@@ -242,7 +260,11 @@ class ReplicationEngine
                 if (empty($exists)) {
                     $this->insertRow('master', $tableName, $row);
                     $this->stats['inserts']++;
+                    $tableInserts++;
                     $synced++;
+                    
+                    // Add to masterPrimaryKeys since we just inserted it
+                    $masterPrimaryKeys[] = $row[$primaryKey];
                     
                     $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
                 } else {
@@ -251,10 +273,11 @@ class ReplicationEngine
                         $masterTimestamp = $exists[0][$timestampColumn] ?? null;
                         $slaveTimestamp = $row[$timestampColumn] ?? null;
                         
-                        // Update master only if slave is newer
-                        if ($slaveTimestamp && $masterTimestamp && $slaveTimestamp > $masterTimestamp) {
+                        // Update master if slave is newer OR if master has no timestamp but slave does
+                        if ($slaveTimestamp && (!$masterTimestamp || $slaveTimestamp > $masterTimestamp)) {
                             $this->updateRow('master', $tableName, $row, $primaryKey);
                             $this->stats['updates']++;
+                            $tableUpdates++;
                             $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
                         }
                     }
@@ -266,21 +289,26 @@ class ReplicationEngine
             }
 
             // Handle deletions for bidirectional sync
+            // Always check for deletions, even if source is empty (to clear target)
+            $deletedBefore = $this->stats['deletes'];
+            
             // Sync deletions from master to slave
-            if (!empty($masterPrimaryKeys)) {
-                $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
-            }
+            $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
+            
             // Sync deletions from slave to master
-            if (!empty($slavePrimaryKeys)) {
-                $this->handleDeletions('master', $tableName, $primaryKey, $slavePrimaryKeys);
-            }
+            $this->handleDeletions('master', $tableName, $primaryKey, $slavePrimaryKeys);
+            
+            $tableDeletes = $this->stats['deletes'] - $deletedBefore;
 
             $this->stats['tablesProcessed'][$tableName] = [
                 'rows' => $synced,
+                'inserts' => $tableInserts,
+                'updates' => $tableUpdates,
+                'deletes' => $tableDeletes,
                 'timestamp' => date('Y-m-d H:i:s')
             ];
 
-            error_log("Bidirectional sync completed: $synced operations for table: $tableName (Inserts: {$this->stats['inserts']}, Updates: {$this->stats['updates']}, Deletes: {$this->stats['deletes']})");
+            error_log("Bidirectional sync completed: $synced operations for table: $tableName (Table stats - Inserts: $tableInserts, Updates: $tableUpdates, Deletes: $tableDeletes)");
         }
     }
 

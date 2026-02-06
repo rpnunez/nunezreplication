@@ -205,11 +205,24 @@ function testTimestampConflictResolution($config) {
                 "SELECT address FROM customers WHERE email = ?", 
                 ['john.doe@example.com']
             );
+            $masterCustomer = $dbManager->query('master', 
+                "SELECT address FROM customers WHERE email = ?", 
+                ['john.doe@example.com']
+            );
             
-            // In master-master with timestamps, the sync should handle conflicts intelligently
-            echo "   Slave address: {$slaveCustomer[0]['address']}\n";
-            echo "   ✓ PASS: Conflict resolution based on timestamps\n";
-            return 0;
+            // In master-master with timestamps, the newer timestamp (slave) should win
+            if ($slaveCustomer[0]['address'] === '200 New Address Ave' && 
+                $masterCustomer[0]['address'] === '200 New Address Ave') {
+                echo "   Master address: {$masterCustomer[0]['address']}\n";
+                echo "   Slave address: {$slaveCustomer[0]['address']}\n";
+                echo "   ✓ PASS: Conflict resolution based on timestamps - newer value propagated to both\n";
+                return 0;
+            } else {
+                echo "   Master address: {$masterCustomer[0]['address']}\n";
+                echo "   Slave address: {$slaveCustomer[0]['address']}\n";
+                echo "   ✗ FAIL: Expected both to have newer address '200 New Address Ave'\n";
+                return 1;
+            }
         } else {
             echo "3. Verifying master precedence for master-slave mode...\n";
             $slaveCustomer = $dbManager->query('slave', 
@@ -247,8 +260,8 @@ function testMetadataTracking($config) {
         echo "1. Checking metadata table existence...\n";
         
         // Check if metadata table exists in both databases
-        $masterTables = $dbManager->query('master', "SHOW TABLES LIKE '_replication_metadata'");
-        $slaveTables = $dbManager->query('slave', "SHOW TABLES LIKE '_replication_metadata'");
+        $masterTables = $dbManager->query('master', "SHOW TABLES LIKE '\\_replication\\_metadata'");
+        $slaveTables = $dbManager->query('slave', "SHOW TABLES LIKE '\\_replication\\_metadata'");
         
         if (!empty($masterTables) && !empty($slaveTables)) {
             echo "   ✓ PASS: Metadata tables exist in both databases\n";

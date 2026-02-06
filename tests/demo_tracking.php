@@ -100,7 +100,7 @@ try {
     foreach ($config['replication']['tables'] as $table) {
         echo "Table: {$table['name']}\n";
         echo "  Primary Key: {$table['primaryKey']}\n";
-        echo "  Timestamp Column: {$table['timestampColumn']}\n";
+        echo "  Timestamp Column: " . ($table['timestampColumn'] ?? 'updated_at') . "\n";
         $ignoreCount = count($table['ignoreColumns'] ?? []);
         echo "  Ignored Columns: $ignoreCount\n";
     }

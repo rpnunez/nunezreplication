@@ -129,7 +129,9 @@ CREATE TABLE _replication_metadata (
     primary_key_value VARCHAR(255) NOT NULL,
     last_sync_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at TIMESTAMP NULL
+    deleted_at TIMESTAMP NULL,
+    UNIQUE KEY uk_table_pk (table_name, primary_key_value),
+    INDEX idx_deleted (is_deleted, deleted_at)
 );
 ```
 
