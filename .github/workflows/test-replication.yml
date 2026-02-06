@@ -50,6 +50,9 @@ jobs:
           extensions: pdo, pdo_mysql, json
           coverage: none
       
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq mysql-client
+      
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist
       
@@ -172,6 +175,9 @@ jobs:
       
       - name: Test API endpoints
         run: |
+          # Copy config file for API server
+          cp config.test.master-slave.json config.json
+          
           # Start PHP server in background
           php -S localhost:8080 -t public public/index.php &
           SERVER_PID=$!
@@ -230,6 +236,9 @@ jobs:
           php-version: '7.4'
           extensions: pdo, pdo_mysql, json
           coverage: none
+      
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq mysql-client
       
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist
@@ -357,6 +366,9 @@ jobs:
       
       - name: Test API endpoints with master-master config
         run: |
+          # Copy config file for API server
+          cp config.test.master-master.json config.json
+          
           # Start PHP server in background
           php -S localhost:8080 -t public public/index.php &
           SERVER_PID=$!
