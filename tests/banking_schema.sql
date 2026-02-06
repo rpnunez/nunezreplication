@@ -38,6 +38,15 @@ CREATE TABLE IF NOT EXISTS transactions (
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Reset sample data to make this script idempotent
+SET FOREIGN_KEY_CHECKS = 0;
+
+TRUNCATE TABLE transactions;
+TRUNCATE TABLE accounts;
+TRUNCATE TABLE customers;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
 -- Insert sample data
 INSERT INTO customers (first_name, last_name, email, phone, address) VALUES
 ('John', 'Doe', 'john.doe@example.com', '555-0101', '123 Main St, New York, NY 10001'),

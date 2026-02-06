@@ -47,12 +47,11 @@ function testReplication($masterConfig, $slaveConfig, $mode) {
             
             // For master-master mode, check bidirectional sync
             if ($mode === 'master-master') {
-                // In master-master mode, both should have at least the original records
-                // The total should account for unique records from both sides
-                if ($slaveCount >= $masterCount || $masterCount >= $slaveCount) {
+                // In master-master mode, both should converge to the same number of records
+                if ($slaveCount === $masterCount) {
                     echo "  ✓ PASS: Bidirectional sync completed (Master: $masterCount, Slave: $slaveCount)\n";
                 } else {
-                    echo "  ✗ FAIL: Bidirectional sync incomplete\n";
+                    echo "  ✗ FAIL: Bidirectional sync incomplete (Master: $masterCount, Slave: $slaveCount)\n";
                     $allPassed = false;
                 }
             }
@@ -88,8 +87,6 @@ function testReplication($masterConfig, $slaveConfig, $mode) {
             $allPassed = false;
         }
         
-        $dbManager->closeAll();
-        
         if ($allPassed) {
             echo "\n✓ All tests passed for $mode mode!\n";
             return 0;
@@ -101,6 +98,8 @@ function testReplication($masterConfig, $slaveConfig, $mode) {
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage() . "\n";
         return 1;
+    } finally {
+        $dbManager->closeAll();
     }
 }
 
@@ -116,9 +115,15 @@ if (!file_exists($configFile)) {
     exit(1);
 }
 
-$config = json_decode(file_get_contents($configFile), true);
-if (!$config) {
-    echo "Error: Invalid JSON in config file\n";
+$configJson = file_get_contents($configFile);
+if ($configJson === false) {
+    echo "Error: Unable to read config file: $configFile\n";
+    exit(1);
+}
+
+$config = json_decode($configJson, true);
+if (json_last_error() !== JSON_ERROR_NONE) {
+    echo "Error: Invalid JSON in config file: " . json_last_error_msg() . "\n";
     exit(1);
 }
 

@@ -21,10 +21,11 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: test_password
           MYSQL_DATABASE: banking_master
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -34,10 +35,11 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: test_password
           MYSQL_DATABASE: banking_slave
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
         ports:
           - 3307:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -62,7 +64,17 @@ jobs:
       - name: Wait for MySQL services
         run: |
           echo "Waiting for MySQL services to be ready..."
-          sleep 10
+          for i in {1..30}; do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -u root -ptest_password --silent 2>/dev/null && \
+               mysqladmin ping -h 127.0.0.1 -P 3307 -u root -ptest_password --silent 2>/dev/null; then
+              echo "MySQL services are ready"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+          echo "MySQL services failed to become ready"
+          exit 1
       
       - name: Initialize master database
         run: |
@@ -208,10 +220,11 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: test_password
           MYSQL_DATABASE: banking_db1
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -221,10 +234,11 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: test_password
           MYSQL_DATABASE: banking_db2
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
         ports:
           - 3307:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -249,7 +263,17 @@ jobs:
       - name: Wait for MySQL services
         run: |
           echo "Waiting for MySQL services to be ready..."
-          sleep 10
+          for i in {1..30}; do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -u root -ptest_password --silent 2>/dev/null && \
+               mysqladmin ping -h 127.0.0.1 -P 3307 -u root -ptest_password --silent 2>/dev/null; then
+              echo "MySQL services are ready"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+          echo "MySQL services failed to become ready"
+          exit 1
       
       - name: Initialize database 1 (master)
         run: |
