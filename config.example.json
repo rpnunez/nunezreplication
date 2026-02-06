@@ -20,16 +20,19 @@
     }
   },
   "replication": {
+    "enableTracking": true,
     "tables": [
       {
         "name": "users",
         "ignoreColumns": ["password_hash", "internal_notes"],
-        "primaryKey": "id"
+        "primaryKey": "id",
+        "timestampColumn": "updated_at"
       },
       {
         "name": "products",
         "ignoreColumns": [],
-        "primaryKey": "id"
+        "primaryKey": "id",
+        "timestampColumn": "updated_at"
       }
     ]
   }

@@ -9,18 +9,25 @@ class ReplicationEngine
     private $dbManager;
     private $config;
     private $stats;
+    private $metadata;
+    private $trackingEnabled;
 
     public function __construct(DatabaseManager $dbManager, $config)
     {
         $this->dbManager = $dbManager;
         $this->config = $config;
+        $this->metadata = new ReplicationMetadata($dbManager);
+        $this->trackingEnabled = $config['replication']['enableTracking'] ?? true;
         $this->stats = [
             'lastSync' => null,
             'totalSyncs' => 0,
             'successfulSyncs' => 0,
             'failedSyncs' => 0,
             'lastError' => null,
-            'tablesProcessed' => []
+            'tablesProcessed' => [],
+            'updates' => 0,
+            'inserts' => 0,
+            'deletes' => 0
         ];
     }
 
@@ -29,8 +36,17 @@ class ReplicationEngine
         $startTime = microtime(true);
         $this->stats['lastSync'] = date('Y-m-d H:i:s');
         $this->stats['totalSyncs']++;
+        $this->stats['updates'] = 0;
+        $this->stats['inserts'] = 0;
+        $this->stats['deletes'] = 0;
 
         try {
+            // Initialize metadata tables if tracking is enabled
+            if ($this->trackingEnabled) {
+                $this->metadata->initializeMetadataTable('master');
+                $this->metadata->initializeMetadataTable('slave');
+            }
+
             if ($this->config['mode'] === 'master-slave') {
                 $this->syncMasterToSlave();
             } elseif ($this->config['mode'] === 'master-master') {
@@ -67,6 +83,7 @@ class ReplicationEngine
             $tableName = $tableConfig['name'];
             $ignoreColumns = $tableConfig['ignoreColumns'] ?? [];
             $primaryKey = $tableConfig['primaryKey'];
+            $timestampColumn = $tableConfig['timestampColumn'] ?? 'updated_at';
 
             // Validate identifiers
             $this->validateIdentifier($tableName);
@@ -83,26 +100,60 @@ class ReplicationEngine
                 $this->validateIdentifier($col);
             }
 
+            // Check if timestamp column exists
+            $hasTimestamp = in_array($timestampColumn, $columns);
+
             // Get all rows from master
             $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
 
+            // Track primary keys we've seen in master (for deletion detection)
+            $masterPrimaryKeys = [];
+            
             $synced = 0;
             foreach ($masterRows as $row) {
+                $masterPrimaryKeys[] = $row[$primaryKey];
+                
                 // Check if row exists in slave
                 $exists = $this->dbManager->query(
                     'slave',
-                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
+                    "SELECT `$primaryKey`" . ($hasTimestamp ? ", `$timestampColumn`" : "") . " FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
                 if (empty($exists)) {
                     // Insert new row
                     $this->insertRow('slave', $tableName, $row);
+                    $this->stats['inserts']++;
                 } else {
-                    // Update existing row
-                    $this->updateRow('slave', $tableName, $row, $primaryKey);
+                    // Check if update is needed based on timestamp
+                    $shouldUpdate = true;
+                    if ($hasTimestamp && $this->trackingEnabled) {
+                        $slaveTimestamp = $exists[0][$timestampColumn] ?? null;
+                        $masterTimestamp = $row[$timestampColumn] ?? null;
+                        
+                        // Only update if master is newer
+                        if ($slaveTimestamp && $masterTimestamp && $masterTimestamp <= $slaveTimestamp) {
+                            $shouldUpdate = false;
+                        }
+                    }
+                    
+                    if ($shouldUpdate) {
+                        $this->updateRow('slave', $tableName, $row, $primaryKey);
+                        $this->stats['updates']++;
+                    }
                 }
+                
+                // Record sync in metadata
+                if ($this->trackingEnabled) {
+                    $this->metadata->recordSync('slave', $tableName, $row[$primaryKey]);
+                }
+                
                 $synced++;
+            }
+
+            // Handle deletions: find rows in slave that don't exist in master
+            if ($this->trackingEnabled && !empty($masterPrimaryKeys)) {
+                $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
             }
 
             $this->stats['tablesProcessed'][$tableName] = [
@@ -110,7 +161,7 @@ class ReplicationEngine
                 'timestamp' => date('Y-m-d H:i:s')
             ];
 
-            error_log("Synced $synced rows for table: $tableName");
+            error_log("Synced $synced rows for table: $tableName (Inserts: {$this->stats['inserts']}, Updates: {$this->stats['updates']}, Deletes: {$this->stats['deletes']})");
         }
     }
 
@@ -120,6 +171,7 @@ class ReplicationEngine
             $tableName = $tableConfig['name'];
             $ignoreColumns = $tableConfig['ignoreColumns'] ?? [];
             $primaryKey = $tableConfig['primaryKey'];
+            $timestampColumn = $tableConfig['timestampColumn'] ?? 'updated_at';
 
             // Validate identifiers
             $this->validateIdentifier($tableName);
@@ -136,43 +188,103 @@ class ReplicationEngine
                 $this->validateIdentifier($col);
             }
 
+            // Check if timestamp column exists
+            $hasTimestamp = in_array($timestampColumn, $columns);
+
             // Sync master -> slave
             $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
             $synced = 0;
+            $masterPrimaryKeys = [];
             
             foreach ($masterRows as $row) {
+                $masterPrimaryKeys[] = $row[$primaryKey];
+                
                 $exists = $this->dbManager->query(
                     'slave',
-                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
+                    "SELECT `$primaryKey`" . ($hasTimestamp ? ", `$timestampColumn`" : "") . " FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
                 if (empty($exists)) {
                     $this->insertRow('slave', $tableName, $row);
+                    $this->stats['inserts']++;
                 } else {
-                    $this->updateRow('slave', $tableName, $row, $primaryKey);
+                    // Check if update is needed based on timestamp
+                    $shouldUpdate = true;
+                    if ($hasTimestamp && $this->trackingEnabled) {
+                        $slaveTimestamp = $exists[0][$timestampColumn] ?? null;
+                        $masterTimestamp = $row[$timestampColumn] ?? null;
+                        
+                        // Only update if master is newer
+                        if ($slaveTimestamp && $masterTimestamp && $masterTimestamp <= $slaveTimestamp) {
+                            $shouldUpdate = false;
+                        }
+                    }
+                    
+                    if ($shouldUpdate) {
+                        $this->updateRow('slave', $tableName, $row, $primaryKey);
+                        $this->stats['updates']++;
+                    }
                 }
+                
+                if ($this->trackingEnabled) {
+                    $this->metadata->recordSync('slave', $tableName, $row[$primaryKey]);
+                }
+                
                 $synced++;
             }
 
             // Sync slave -> master
             $slaveRows = $this->dbManager->query('slave', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
+            $slavePrimaryKeys = [];
             
             foreach ($slaveRows as $row) {
+                $slavePrimaryKeys[] = $row[$primaryKey];
+                
                 $exists = $this->dbManager->query(
                     'master',
-                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
+                    "SELECT `$primaryKey`" . ($hasTimestamp ? ", `$timestampColumn`" : "") . " FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
                 if (empty($exists)) {
                     $this->insertRow('master', $tableName, $row);
+                    $this->stats['inserts']++;
                     $synced++;
+                    
+                    if ($this->trackingEnabled) {
+                        $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
+                    }
+                } else {
+                    // In master-master mode with timestamp tracking, use last-write-wins
+                    if ($hasTimestamp && $this->trackingEnabled) {
+                        $masterTimestamp = $exists[0][$timestampColumn] ?? null;
+                        $slaveTimestamp = $row[$timestampColumn] ?? null;
+                        
+                        // Update master only if slave is newer
+                        if ($slaveTimestamp && $masterTimestamp && $slaveTimestamp > $masterTimestamp) {
+                            $this->updateRow('master', $tableName, $row, $primaryKey);
+                            $this->stats['updates']++;
+                            $this->metadata->recordSync('master', $tableName, $row[$primaryKey]);
+                        }
+                    }
+                    // Note: Without timestamp tracking, master data takes precedence to avoid conflicts.
+                    // Only new records from slave are synced to master. Existing master records
+                    // are not overwritten by slave data. This prevents bi-directional conflicts
+                    // where simultaneous updates on both sides could cause inconsistency.
                 }
-                // Note: In master-master mode, master data takes precedence to avoid conflicts.
-                // Only new records from slave are synced to master. Existing master records
-                // are not overwritten by slave data. This prevents bi-directional conflicts
-                // where simultaneous updates on both sides could cause inconsistency.
+            }
+
+            // Handle deletions for bidirectional sync
+            if ($this->trackingEnabled) {
+                // Sync deletions from master to slave
+                if (!empty($masterPrimaryKeys)) {
+                    $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
+                }
+                // Sync deletions from slave to master
+                if (!empty($slavePrimaryKeys)) {
+                    $this->handleDeletions('master', $tableName, $primaryKey, $slavePrimaryKeys);
+                }
             }
 
             $this->stats['tablesProcessed'][$tableName] = [
@@ -180,7 +292,7 @@ class ReplicationEngine
                 'timestamp' => date('Y-m-d H:i:s')
             ];
 
-            error_log("Bidirectional sync completed: $synced operations for table: $tableName");
+            error_log("Bidirectional sync completed: $synced operations for table: $tableName (Inserts: {$this->stats['inserts']}, Updates: {$this->stats['updates']}, Deletes: {$this->stats['deletes']})");
         }
     }
 
@@ -250,6 +362,35 @@ class ReplicationEngine
         $params[] = $row[$primaryKey];
         
         $this->dbManager->execute($dbName, $sql, $params);
+    }
+
+    /**
+     * Handle deletion of rows that exist in target but not in source
+     */
+    private function handleDeletions($targetDbName, $tableName, $primaryKey, $sourcePrimaryKeys)
+    {
+        $this->validateIdentifier($tableName);
+        $this->validateIdentifier($primaryKey);
+        
+        // Get all primary keys from target
+        $targetRows = $this->dbManager->query($targetDbName, "SELECT `$primaryKey` FROM `$tableName`");
+        
+        foreach ($targetRows as $targetRow) {
+            $targetPk = $targetRow[$primaryKey];
+            
+            // If this row doesn't exist in source, it was deleted
+            if (!in_array($targetPk, $sourcePrimaryKeys)) {
+                // Delete from target
+                $sql = "DELETE FROM `$tableName` WHERE `$primaryKey` = ?";
+                $this->dbManager->execute($targetDbName, $sql, [$targetPk]);
+                
+                // Mark as deleted in metadata
+                $this->metadata->markAsDeleted($targetDbName, $tableName, $targetPk);
+                
+                $this->stats['deletes']++;
+                error_log("Deleted row with $primaryKey=$targetPk from $tableName in $targetDbName");
+            }
+        }
     }
 
     public function getStats()
