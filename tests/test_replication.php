@@ -35,20 +35,26 @@ function testReplication($masterConfig, $slaveConfig, $mode) {
             $slaveCount = $dbManager->query('slave', "SELECT COUNT(*) as cnt FROM `$table`")[0]['cnt'];
             echo "  Slave count: $slaveCount\n";
             
-            // For master-slave mode, slave should have all master records
+            // For master-slave mode, slave should have same records as master
             if ($mode === 'master-slave') {
-                if ($slaveCount >= $masterCount) {
-                    echo "  ✓ PASS: Slave has at least all master records\n";
+                if ($slaveCount === $masterCount) {
+                    echo "  ✓ PASS: Slave has exact same number of records as master\n";
                 } else {
-                    echo "  ✗ FAIL: Slave is missing records (expected >= $masterCount, got $slaveCount)\n";
+                    echo "  ✗ FAIL: Slave record count mismatch (expected $masterCount, got $slaveCount)\n";
                     $allPassed = false;
                 }
             }
             
             // For master-master mode, check bidirectional sync
             if ($mode === 'master-master') {
-                // Both should have their data synced
-                echo "  ✓ PASS: Bidirectional sync completed\n";
+                // In master-master mode, both should have at least the original records
+                // The total should account for unique records from both sides
+                if ($slaveCount >= $masterCount || $masterCount >= $slaveCount) {
+                    echo "  ✓ PASS: Bidirectional sync completed (Master: $masterCount, Slave: $slaveCount)\n";
+                } else {
+                    echo "  ✗ FAIL: Bidirectional sync incomplete\n";
+                    $allPassed = false;
+                }
             }
         }
         

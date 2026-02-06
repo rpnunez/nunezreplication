@@ -14,7 +14,7 @@ A standalone PHP application for replicating data between MySQL databases with s
 ## Requirements
 
 - PHP 7.4 or higher
-- MySQL 5.7 or higher
+- MySQL 8.0 or higher (MySQL 5.7+ may work but 8.0 is tested and recommended)
 - PHP Extensions: PDO, PDO_MySQL, JSON
 - Composer (for dependency management)
 
@@ -223,7 +223,7 @@ The project includes automated tests that run via GitHub Actions. The test suite
 ### Running Tests Locally
 
 To run the replication tests locally, you'll need:
-- MySQL 5.7 or higher (with multiple instances on different ports)
+- MySQL 8.0 or higher (with multiple instances on different ports)
 - PHP 7.4 or higher
 - Composer
 
