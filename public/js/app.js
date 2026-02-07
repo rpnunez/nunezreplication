@@ -5,6 +5,8 @@ let refreshTimer;
 // Config editor state
 let currentConfigFile = null;
 let configSchema = null;
+let pendingTemplateId = null;
+let pendingTemplateName = null;
 
 // Fetch and display status
 async function fetchStatus() {
@@ -439,6 +441,17 @@ window.addEventListener('beforeunload', () => {
 // CONFIG EDITOR FUNCTIONALITY
 // ============================================
 
+// Show notification toast
+function showNotification(message, type = 'success') {
+    const toast = document.getElementById('notificationToast');
+    toast.textContent = message;
+    toast.className = `toast ${type} show`;
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+    }, 4000);
+}
+
 // Fetch and display config files list
 async function fetchConfigsList() {
     try {
@@ -509,7 +522,7 @@ async function openConfigEditor(filename) {
         const data = await response.json();
         
         if (!data.success) {
-            alert('Failed to load config: ' + data.error);
+            showNotification('Failed to load config: ' + data.error, 'error');
             return;
         }
         
@@ -541,7 +554,7 @@ async function openConfigEditor(filename) {
         
     } catch (error) {
         console.error('Error opening config editor:', error);
-        alert('Failed to open config editor');
+        showNotification('Failed to open config editor', 'error');
     }
 }
 
@@ -678,7 +691,7 @@ async function openCreateConfigModal() {
         const data = await response.json();
         
         if (!data.success) {
-            alert('Failed to load templates');
+            showNotification('Failed to load templates', 'error');
             return;
         }
         
@@ -706,15 +719,47 @@ async function openCreateConfigModal() {
         document.getElementById('createConfigModal').classList.add('active');
     } catch (error) {
         console.error('Error loading templates:', error);
-        alert('Failed to load templates');
+        showNotification('Failed to load templates', 'error');
     }
 }
 
 // Create config from template
-async function createFromTemplate(templateId, templateName) {
-    const filename = prompt('Enter filename for new configuration:', `config.${templateId}.json`);
+function createFromTemplate(templateId, templateName) {
+    // Store template info and show filename prompt modal
+    pendingTemplateId = templateId;
+    pendingTemplateName = templateName;
+    
+    // Close create modal
+    document.getElementById('createConfigModal').classList.remove('active');
+    
+    // Set default filename
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    document.getElementById('newFilenameInput').value = `config.${templateId}.${timestamp}.json`;
+    
+    // Clear error
+    document.getElementById('filenameError').textContent = '';
+    document.getElementById('filenameError').className = 'editor-status';
+    
+    // Show filename prompt modal
+    document.getElementById('filenamePromptModal').classList.add('active');
+    document.getElementById('newFilenameInput').focus();
+}
+
+// Confirm filename and create config
+async function confirmFilename() {
+    const filename = document.getElementById('newFilenameInput').value.trim();
+    const errorDiv = document.getElementById('filenameError');
     
     if (!filename) {
+        errorDiv.className = 'editor-status error';
+        errorDiv.textContent = 'Please enter a filename';
+        return;
+    }
+    
+    // Validate filename format
+    if (!filename.match(/^[a-zA-Z0-9]+([._-]?[a-zA-Z0-9]+)*\.json$/)) {
+        errorDiv.className = 'editor-status error';
+        errorDiv.textContent = 'Invalid filename format. Use only alphanumeric characters with optional separators (._-)';
         return;
     }
     
@@ -724,14 +769,17 @@ async function createFromTemplate(templateId, templateName) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ type: templateId, filename })
+            body: JSON.stringify({ type: pendingTemplateId, filename })
         });
         
         const data = await response.json();
         
         if (data.success) {
-            // Close create modal
-            document.getElementById('createConfigModal').classList.remove('active');
+            // Close filename prompt modal
+            document.getElementById('filenamePromptModal').classList.remove('active');
+            
+            // Show success notification
+            showNotification('Configuration created successfully!', 'success');
             
             // Refresh list
             await fetchConfigsList();
@@ -739,12 +787,21 @@ async function createFromTemplate(templateId, templateName) {
             // Open editor with new file
             await openConfigEditor(data.result.filename);
         } else {
-            alert('Failed to create config: ' + data.error);
+            errorDiv.className = 'editor-status error';
+            errorDiv.textContent = data.error;
         }
     } catch (error) {
         console.error('Error creating config:', error);
-        alert('Failed to create configuration');
+        errorDiv.className = 'editor-status error';
+        errorDiv.textContent = 'Failed to create configuration';
     }
+}
+
+// Close filename prompt modal
+function closeFilenamePromptModal() {
+    document.getElementById('filenamePromptModal').classList.remove('active');
+    pendingTemplateId = null;
+    pendingTemplateName = null;
 }
 
 // Close modals
@@ -766,6 +823,8 @@ async function initConfigEditor() {
     document.getElementById('createConfigButton').addEventListener('click', openCreateConfigModal);
     document.getElementById('saveConfigButton').addEventListener('click', saveConfigFile);
     document.getElementById('cancelConfigButton').addEventListener('click', closeConfigEditorModal);
+    document.getElementById('confirmFilenameButton').addEventListener('click', confirmFilename);
+    document.getElementById('cancelFilenameButton').addEventListener('click', closeFilenamePromptModal);
     
     // Close modals on X click
     document.querySelectorAll('.modal .close').forEach(closeBtn => {
@@ -787,6 +846,13 @@ async function initConfigEditor() {
             document.querySelectorAll('.modal.active').forEach(modal => {
                 modal.classList.remove('active');
             });
+        }
+    });
+    
+    // Handle Enter key in filename input
+    document.getElementById('newFilenameInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            confirmFilename();
         }
     });
 }

@@ -123,6 +123,28 @@
         </div>
     </div>
 
+    <!-- Filename Prompt Modal -->
+    <div id="filenamePromptModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Enter Filename</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Enter a filename for the new configuration:</p>
+                <input type="text" id="newFilenameInput" class="filename-input" placeholder="config.my-config.json" />
+                <div id="filenameError" class="editor-status"></div>
+                <div class="modal-actions">
+                    <button id="confirmFilenameButton" class="btn btn-primary">Create</button>
+                    <button id="cancelFilenameButton" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="notificationToast" class="toast"></div>
+
     <script src="/js/app.js"></script>
 </body>
 </html>

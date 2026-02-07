@@ -21,8 +21,8 @@ class ConfigManager
         
         foreach ($files as $file) {
             $filename = basename($file);
-            // Skip composer.json and other non-config files
-            if (strpos($filename, 'config') !== false && strpos($filename, 'composer') === false) {
+            // Only include files that start with 'config' and end with '.json', excluding composer.json
+            if (preg_match('/^config.*\.json$/', $filename) && $filename !== 'composer.json') {
                 $configs[] = [
                     'filename' => $filename,
                     'path' => $file,
@@ -74,9 +74,9 @@ class ConfigManager
      */
     public function saveConfig($filename, $content)
     {
-        // Validate filename - prevent consecutive special characters
-        if (!preg_match('/^[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*\.json$/', $filename)) {
-            throw new \Exception('Invalid filename. Only alphanumeric characters with single dots, dashes, or underscores between them are allowed.');
+        // Validate filename - prevent consecutive special characters and enforce proper structure
+        if (!preg_match('/^[a-zA-Z0-9]+([._-]?[a-zA-Z0-9]+)*\.json$/', $filename)) {
+            throw new \Exception('Invalid filename. Must start with alphanumeric characters and end with .json. Special characters (._-) must be separated by alphanumeric characters.');
         }
         
         // Validate JSON
@@ -120,7 +120,9 @@ class ConfigManager
         $template = $this->getTemplate($type);
         
         if ($filename === null) {
-            $filename = 'config.' . strtolower(str_replace(' ', '-', $type)) . '.' . time() . '.json';
+            // Use readable timestamp format
+            $timestamp = date('Y-m-d-His');
+            $filename = 'config.' . strtolower(str_replace(' ', '-', $type)) . '.' . $timestamp . '.json';
         }
         
         return $this->saveConfig($filename, json_encode($template, JSON_PRETTY_PRINT));
