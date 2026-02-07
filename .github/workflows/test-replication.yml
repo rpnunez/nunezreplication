@@ -724,15 +724,15 @@ jobs:
             exit 1
           fi
           
-          echo "Checking if local customers exist in remote:"
+          echo "Checking if specific local-only customer exists in remote:"
           LOCAL_CUSTOMER=$(mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
-            SELECT COUNT(*) as count FROM customers WHERE email LIKE '%@example.com' AND email != 'remote.customer@example.com';
+            SELECT COUNT(*) as count FROM customers WHERE email = 'local.customer@example.com';
           " -s -N)
           
-          if [ "$LOCAL_CUSTOMER" -gt "0" ]; then
-            echo "✓ Local customers successfully synced to remote"
+          if [ "$LOCAL_CUSTOMER" -eq "1" ]; then
+            echo "✓ Local customer successfully synced to remote"
           else
-            echo "✗ Local customers NOT found in remote"
+            echo "✗ Local customer NOT found in remote"
             exit 1
           fi
       
