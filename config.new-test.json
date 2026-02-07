@@ -1,0 +1,32 @@
+{
+    "mode": "master-slave",
+    "syncInterval": "*\/5 * * * *",
+    "port": 8080,
+    "demoMode": false,
+    "databases": {
+        "master": {
+            "host": "localhost",
+            "port": 3306,
+            "user": "root",
+            "password": "password",
+            "database": "master_db"
+        },
+        "slave": {
+            "host": "localhost",
+            "port": 3307,
+            "user": "root",
+            "password": "password",
+            "database": "slave_db"
+        }
+    },
+    "replication": {
+        "tables": [
+            {
+                "name": "users",
+                "ignoreColumns": [],
+                "primaryKey": "id",
+                "timestampColumn": "updated_at"
+            }
+        ]
+    }
+}
