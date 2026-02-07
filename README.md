@@ -1,10 +1,13 @@
 # MySQL Database Replication Application
 
-A standalone PHP application for replicating data between MySQL databases with support for both Master-Slave and Master-Master replication modes.
+A standalone PHP application for replicating data between MySQL databases with support for both Master-Slave and Master-Master replication modes, including multi-environment synchronization via API.
 
 ## Features
 
 - **Flexible Replication Modes**: Support for Master-Slave and Master-Master replication
+- **Transaction Support**: Atomic operations with automatic rollback on errors
+- **Multi-Environment Sync**: Synchronize data across multiple independent environments via REST API
+- **API-Based Replication**: Push/pull data between environments with different IP addresses/DNS
 - **Timestamp-Based Tracking**: Track row modifications and last sync times for intelligent conflict resolution
 - **Update Detection**: Automatically detect and replicate row-level updates using timestamp comparison
 - **Delete Tracking**: Handle deletions with metadata tracking to ensure consistency
@@ -13,6 +16,7 @@ A standalone PHP application for replicating data between MySQL databases with s
 - **Real-time Dashboard**: Web UI with live status updates and comprehensive statistics
 - **Statistics Database**: Dedicated database for storing replication history, metrics, and logs
 - **Historical Analytics**: Track sync history, per-table statistics, and error logs
+- **API Authentication**: Secure API endpoints with API key authentication
 - **Automated Syncing**: Periodic synchronization via cron jobs
 - **Error Tracking**: Comprehensive logging and error reporting
 
@@ -20,7 +24,7 @@ A standalone PHP application for replicating data between MySQL databases with s
 
 - PHP 7.4 or higher
 - MySQL 8.0 or higher (MySQL 5.7+ may work but 8.0 is tested and recommended)
-- PHP Extensions: PDO, PDO_MySQL, JSON
+- PHP Extensions: PDO, PDO_MySQL, JSON, cURL (for multi-environment sync)
 - Composer (for dependency management)
 
 ## Installation
@@ -97,6 +101,71 @@ The application uses a JSON configuration file. Here's what each setting means:
 - Timestamp-based conflict resolution
 - Deletion tracking and propagation
 - Last sync tracking per row
+
+**Transaction Support** (always enabled):
+- All replication operations are wrapped in database transactions
+- Automatic rollback on errors ensures data consistency
+- Atomic operations prevent partial syncs
+- Per-table transaction isolation
+
+### Multi-Environment Synchronization
+
+The replication engine supports synchronizing data across multiple independent environments, each with their own IP address/DNS. This is useful for:
+- Syncing data between production, staging, and development environments
+- Distributing data across geographically distributed data centers
+- Creating hybrid cloud/on-premise architectures
+
+**Configuration Example**:
+```json
+{
+  "mode": "master-slave",
+  "api": {
+    "keys": ["your-api-key-here", "another-api-key"]
+  },
+  "remoteEnvironments": {
+    "production": {
+      "url": "https://prod-server.example.com",
+      "apiKey": "prod-api-key",
+      "syncMode": "bidirectional",
+      "timeout": 30
+    },
+    "staging": {
+      "url": "https://staging-server.example.com",
+      "apiKey": "staging-api-key",
+      "syncMode": "pull",
+      "timeout": 30
+    }
+  },
+  "databases": { ... },
+  "replication": { ... }
+}
+```
+
+**Sync Modes**:
+- `push`: Only push local data to remote environment
+- `pull`: Only pull data from remote environment to local
+- `bidirectional`: Both push and pull data (default)
+
+**API Authentication**:
+- Configure API keys in the `api.keys` array
+- Each remote environment uses its own API key
+- If no keys are configured, authentication is disabled (backward compatible)
+
+**Running Multi-Environment Sync**:
+```bash
+# Sync with all remote environments
+php src/sync_multi.php
+
+# With custom config file
+php src/sync_multi.php config.production.json
+```
+
+**Setting Up Automated Multi-Environment Sync**:
+```bash
+# Add to crontab (edit with `crontab -e`)
+# Sync every 15 minutes with remote environments
+*/15 * * * * php /path/to/nunezreplication/src/sync_multi.php >> /var/log/multi-replication.log 2>&1
+```
 
 ### Replication Modes
 
@@ -298,6 +367,58 @@ Returns statistics for a specific table.
 **Query Parameters:**
 - `table` (required) - Table name
 - `limit` (optional, default: 10, max: 100) - Number of records to return
+### POST /api/push
+Push data from remote environment to local database. Requires API key authentication.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key-here
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "table": "users",
+  "data": [
+    {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john@example.com",
+      "updated_at": "2026-02-07 10:00:00"
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": {
+    "inserted": 1,
+    "updated": 0,
+    "total": 1
+  }
+}
+```
+
+### GET /api/pull
+Pull data from local database to send to remote environment. Requires API key authentication.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key-here
+```
+
+**Query Parameters:**
+- `table` (required): Table name to pull data from
+- `since` (optional): Only pull data updated after this timestamp
+
+**Example:**
+```
+GET /api/pull?table=users&since=2026-02-07%2010:00:00
+```
 
 **Response:**
 ```json
@@ -321,6 +442,30 @@ Returns recent error logs from the statistics database.
 
 **Query Parameters:**
 - `limit` (optional, default: 20, max: 100) - Number of records to return
+  "success": true,
+  "table": "users",
+  "data": [
+    {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john@example.com",
+      "updated_at": "2026-02-07 10:00:00"
+    }
+  ],
+  "timestamp": "2026-02-07 10:30:00"
+}
+```
+
+### GET /api/metadata
+Get replication metadata for a specific table. Requires API key authentication.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key-here
+```
+
+**Query Parameters:**
+- `table` (required): Table name
 
 **Response:**
 ```json
@@ -333,6 +478,14 @@ Returns recent error logs from the statistics database.
     }
   ],
   "count": 1
+  "success": true,
+  "table": "users",
+  "metadata": {
+    "total_records": 150,
+    "deleted_records": 5,
+    "last_sync": "2026-02-07 10:30:00",
+    "first_sync": "2026-02-01 08:00:00"
+  }
 }
 ```
 
@@ -357,15 +510,19 @@ nunezreplication/
 │   ├── Config/
 │   │   └── ConfigLoader.php           # Configuration management
 │   ├── Database/
-│   │   └── DatabaseManager.php        # Database connection handler
+│   │   └── DatabaseManager.php        # Database connection handler with transaction support
 │   ├── Replication/
 │   │   ├── ReplicationEngine.php      # Core replication logic
 │   │   ├── ReplicationMetadata.php    # Metadata tracking system
 │   │   └── ReplicationStatsDB.php     # Statistics database manager
 │   ├── Api/
 │   │   ├── Router.php                 # API routing
-│   │   └── ApiController.php          # API endpoints
-│   └── sync.php                       # CLI sync script
+│   │   ├── ApiController.php          # API endpoints
+│   │   └── ApiClient.php              # API client for remote calls
+│   ├── Sync/
+│   │   └── MultiEnvironmentSync.php   # Multi-environment sync orchestration
+│   ├── sync.php                       # CLI sync script (local)
+│   └── sync_multi.php                 # CLI sync script (multi-environment)
 ├── public/
 │   ├── index.php                      # Application entry point
 │   ├── index.html                     # Dashboard UI
@@ -386,11 +543,29 @@ nunezreplication/
 
 ## Security Considerations
 
+### Database Security
 - Keep `config.json` secure and never commit it to version control
 - Use strong database passwords
-- Restrict database user permissions to only necessary operations
-- Use HTTPS in production environments
+- Restrict database user permissions to only necessary operations (SELECT, INSERT, UPDATE, DELETE)
 - Consider using environment variables for sensitive credentials
+
+### API Security
+- **Always use HTTPS in production** to encrypt API communications
+- Configure API keys in the `api.keys` array for authentication
+- Store API keys securely and rotate them regularly
+- Use different API keys for different environments
+- Consider using IP whitelisting at the network level
+- Monitor API access logs for suspicious activity
+
+### Network Security
+- Use firewalls to restrict database access to only authorized IPs
+- For multi-environment sync, ensure secure network connections (VPN, private networks)
+- Consider using SSL/TLS for MySQL connections in production
+
+### Transaction Safety
+- All replication operations are wrapped in transactions for atomicity
+- Automatic rollback on errors prevents data corruption
+- Monitor transaction logs for failed operations
 
 ## Troubleshooting
 
@@ -468,6 +643,11 @@ The workflow uses a banking application schema with customers, accounts, and tra
 ## License
 
 ISC
+
+## Additional Documentation
+
+- **[Multi-Environment Synchronization Guide](MULTI_ENV_GUIDE.md)**: Comprehensive guide for setting up API-based synchronization across multiple environments
+- **[Feature Roadmap](ROADMAP.md)**: Current features and potential future enhancements
 
 ## Contributing
 

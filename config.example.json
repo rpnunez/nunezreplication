@@ -3,6 +3,23 @@
   "syncInterval": "*/5 * * * *",
   "port": 8080,
   "demoMode": true,
+  "api": {
+    "keys": ["your-api-key-here", "another-api-key"]
+  },
+  "remoteEnvironments": {
+    "production": {
+      "url": "https://prod-server.example.com",
+      "apiKey": "prod-api-key",
+      "syncMode": "bidirectional",
+      "timeout": 30
+    },
+    "staging": {
+      "url": "https://staging-server.example.com",
+      "apiKey": "staging-api-key",
+      "syncMode": "pull",
+      "timeout": 30
+    }
+  },
   "databases": {
     "master": {
       "host": "localhost",

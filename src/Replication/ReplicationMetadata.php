@@ -133,4 +133,31 @@ class ReplicationMetadata
         
         $this->dbManager->execute($dbName, $sql, [$daysToKeep]);
     }
+
+    /**
+     * Get metadata for a specific table
+     */
+    public function getTableMetadata($dbName, $tableName)
+    {
+        $sql = "SELECT 
+                    COUNT(*) as total_records,
+                    COUNT(CASE WHEN is_deleted = TRUE THEN 1 END) as deleted_records,
+                    MAX(last_sync_timestamp) as last_sync,
+                    MIN(last_sync_timestamp) as first_sync
+                FROM `{$this->metadataTableName}` 
+                WHERE table_name = ?";
+        
+        $result = $this->dbManager->query($dbName, $sql, [$tableName]);
+        
+        if (!empty($result)) {
+            return $result[0];
+        }
+        
+        return [
+            'total_records' => 0,
+            'deleted_records' => 0,
+            'last_sync' => null,
+            'first_sync' => null
+        ];
+    }
 }

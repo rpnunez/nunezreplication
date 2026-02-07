@@ -29,6 +29,12 @@ class ApiController
 
     public function getConfig()
     {
+        // Authenticate API request - config may contain sensitive data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+
         // Return config without sensitive data
         $safeConfig = $this->config;
         
@@ -36,6 +42,11 @@ class ApiController
             foreach ($safeConfig['databases'] as $key => &$db) {
                 unset($db['password']);
             }
+        }
+        
+        // Remove API keys from response
+        if (isset($safeConfig['api']['keys'])) {
+            unset($safeConfig['api']['keys']);
         }
         
         return $safeConfig;
@@ -138,5 +149,133 @@ class ApiController
                 'errors' => []
             ];
         }
+    }
+
+    public function pushData()
+    {
+        // Authenticate API request
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        if (!isset($input['table']) || !isset($input['data'])) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameters: table and data'];
+        }
+
+        try {
+            $result = $this->engine->pushDataToLocal($input['table'], $input['data']);
+            return [
+                'success' => true,
+                'result' => $result
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function pullData()
+    {
+        // Authenticate API request
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+
+        $tableName = $_GET['table'] ?? null;
+        $since = $_GET['since'] ?? null;
+
+        if (!$tableName) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameter: table'];
+        }
+
+        try {
+            $data = $this->engine->pullDataFromLocal($tableName, $since);
+            return [
+                'success' => true,
+                'table' => $tableName,
+                'data' => $data,
+                'timestamp' => date('Y-m-d H:i:s')
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function getMetadata()
+    {
+        // Authenticate API request
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+
+        $tableName = $_GET['table'] ?? null;
+
+        if (!$tableName) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameter: table'];
+        }
+
+        try {
+            $metadata = $this->engine->getTableMetadata($tableName);
+            return [
+                'success' => true,
+                'table' => $tableName,
+                'metadata' => $metadata
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    private function authenticateRequest()
+    {
+        // Check for API key in header (case-insensitive)
+        $headers = getallheaders();
+        if ($headers === false) {
+            $headers = [];
+        }
+        
+        // Normalize header keys to lowercase for case-insensitive lookup
+        $normalizedHeaders = array_change_key_case($headers, CASE_LOWER);
+        $apiKey = $normalizedHeaders['x-api-key'] ?? null;
+
+        // Get configured API keys
+        $configuredKeys = $this->config['api']['keys'] ?? [];
+
+        // If no keys configured, allow all requests (backward compatibility)
+        if (empty($configuredKeys)) {
+            return true;
+        }
+
+        // Validate API key using constant-time comparison to prevent timing attacks
+        if ($apiKey === null) {
+            return false;
+        }
+        
+        foreach ($configuredKeys as $validKey) {
+            if (hash_equals($validKey, $apiKey)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }
