@@ -9,7 +9,7 @@ echo "Testing ReplicationStatsDB class...\n\n";
 // Test 1: Check if class can be loaded
 echo "✓ ReplicationStatsDB class loaded successfully\n";
 
-// Test 2: Check if we can create methods exist
+// Test 2: Check if methods exist
 $reflection = new ReflectionClass(ReplicationStatsDB::class);
 $methods = [
     'startSync',
