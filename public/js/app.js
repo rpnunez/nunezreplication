@@ -732,8 +732,10 @@ function createFromTemplate(templateId, templateName) {
     // Close create modal
     document.getElementById('createConfigModal').classList.remove('active');
     
-    // Set default filename
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    // Set default filename with same format as PHP: Y-m-d-His
+    const now = new Date();
+    const timestamp = now.toISOString().slice(0, 10) + '-' + 
+                     now.toISOString().slice(11, 19).replace(/:/g, '');
     document.getElementById('newFilenameInput').value = `config.${templateId}.${timestamp}.json`;
     
     // Clear error
@@ -756,10 +758,10 @@ async function confirmFilename() {
         return;
     }
     
-    // Validate filename format
-    if (!filename.match(/^[a-zA-Z0-9]+([._-]?[a-zA-Z0-9]+)*\.json$/)) {
+    // Validate filename format - must start with 'config'
+    if (!filename.match(/^config[a-zA-Z0-9]*([._-]?[a-zA-Z0-9]+)*\.json$/)) {
         errorDiv.className = 'editor-status error';
-        errorDiv.textContent = 'Invalid filename format. Use only alphanumeric characters with optional separators (._-)';
+        errorDiv.textContent = 'Invalid filename. Must start with "config" and use only alphanumeric characters with optional separators (._-)';
         return;
     }
     

@@ -8,7 +8,12 @@ class ConfigManager
     
     public function __construct()
     {
-        $this->configDir = __DIR__ . '/../../';
+        $this->configDir = realpath(__DIR__ . '/../../') . DIRECTORY_SEPARATOR;
+        
+        // Ensure directory exists and is writable
+        if (!is_dir($this->configDir) || !is_writable($this->configDir)) {
+            throw new \Exception('Config directory is not accessible or writable');
+        }
     }
     
     /**
@@ -21,8 +26,8 @@ class ConfigManager
         
         foreach ($files as $file) {
             $filename = basename($file);
-            // Only include files that start with 'config' and end with '.json', excluding composer.json
-            if (preg_match('/^config.*\.json$/', $filename) && $filename !== 'composer.json') {
+            // Only include files matching the same pattern as saveConfig validation
+            if (preg_match('/^config[a-zA-Z0-9]*([._-]?[a-zA-Z0-9]+)*\.json$/', $filename)) {
                 $configs[] = [
                     'filename' => $filename,
                     'path' => $file,
@@ -74,9 +79,9 @@ class ConfigManager
      */
     public function saveConfig($filename, $content)
     {
-        // Validate filename - prevent consecutive special characters and enforce proper structure
-        if (!preg_match('/^[a-zA-Z0-9]+([._-]?[a-zA-Z0-9]+)*\.json$/', $filename)) {
-            throw new \Exception('Invalid filename. Must start with alphanumeric characters and end with .json. Special characters (._-) must be separated by alphanumeric characters.');
+        // Validate filename - must start with 'config' and follow security rules
+        if (!preg_match('/^config[a-zA-Z0-9]*([._-]?[a-zA-Z0-9]+)*\.json$/', $filename)) {
+            throw new \Exception('Invalid filename. Must start with "config", contain only alphanumeric characters, and may include separators (._-) between alphanumeric segments.');
         }
         
         // Validate JSON
@@ -96,6 +101,9 @@ class ConfigManager
         if (file_exists($filepath)) {
             $backupPath = $filepath . '.backup.' . time();
             copy($filepath, $backupPath);
+            
+            // Clean up old backups (keep only last 5)
+            $this->cleanupBackups($filename);
         }
         
         // Save file
@@ -396,6 +404,28 @@ class ConfigManager
                 ]
             ]
         ];
+    }
+    
+    /**
+     * Clean up old backup files, keeping only the most recent ones
+     */
+    private function cleanupBackups($filename, $keepCount = 5)
+    {
+        $backupPattern = $this->configDir . $filename . '.backup.*';
+        $backups = glob($backupPattern);
+        
+        if (count($backups) > $keepCount) {
+            // Sort by modification time, oldest first
+            usort($backups, function($a, $b) {
+                return filemtime($a) - filemtime($b);
+            });
+            
+            // Delete oldest backups
+            $toDelete = array_slice($backups, 0, count($backups) - $keepCount);
+            foreach ($toDelete as $backup) {
+                unlink($backup);
+            }
+        }
     }
     
     /**
