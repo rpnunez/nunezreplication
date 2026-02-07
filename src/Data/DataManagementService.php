@@ -18,6 +18,7 @@ class DataManagementService
     
     /**
      * Get list of available databases from config
+     * Excludes the 'stats' database as it's used for replication metadata, not application data
      */
     public function getAvailableDatabases()
     {
@@ -25,7 +26,7 @@ class DataManagementService
         
         if (isset($this->config['databases'])) {
             foreach ($this->config['databases'] as $dbName => $dbConfig) {
-                // Skip stats database
+                // Skip stats database - it stores replication metadata, not application data
                 if ($dbName === 'stats') {
                     continue;
                 }

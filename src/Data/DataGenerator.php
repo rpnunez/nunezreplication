@@ -270,14 +270,20 @@ class DataGenerator
         foreach ($columns as $column) {
             $columnName = $column['Field'];
             $extra = $column['Extra'];
+            $key = $column['Key'] ?? '';
             
             // Skip auto-increment
             if (strpos($extra, 'auto_increment') !== false) {
                 continue;
             }
             
-            // Skip primary keys (usually 'id')
-            if ($columnName === 'id' || strpos($columnName, '_id') !== false) {
+            // Skip primary keys
+            if ($key === 'PRI') {
+                continue;
+            }
+            
+            // Skip foreign keys (columns ending with '_id' that aren't explicitly PRI)
+            if (preg_match('/_id$/', $columnName)) {
                 continue;
             }
             
