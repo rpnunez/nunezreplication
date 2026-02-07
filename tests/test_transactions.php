@@ -65,21 +65,20 @@ try {
     // Start transaction and insert a record
     $dbManager->beginTransaction('slave');
     
-    // Insert a test record
+    // Insert a test record using configured primary key
     $testId = 999999;
-    $columns = ['id', 'name', 'email'];
     
-    // Check if table has these columns
+    // Check if table has name and email columns
     $tableColumns = $dbManager->query('slave', "SHOW COLUMNS FROM `$testTable`");
     $columnNames = array_map(function($col) { return $col['Field']; }, $tableColumns);
     
     if (in_array('name', $columnNames) && in_array('email', $columnNames)) {
-        $sql = "INSERT INTO `$testTable` (id, name, email) VALUES (?, ?, ?)";
+        $sql = "INSERT INTO `$testTable` (`$primaryKey`, name, email) VALUES (?, ?, ?)";
         $dbManager->execute('slave', $sql, [$testId, 'Test User', 'test@example.com']);
         echo "✓ Test record inserted in transaction\n";
         
         // Verify record exists in transaction
-        $result = $dbManager->query('slave', "SELECT COUNT(*) as cnt FROM `$testTable` WHERE id = ?", [$testId]);
+        $result = $dbManager->query('slave', "SELECT COUNT(*) as cnt FROM `$testTable` WHERE `$primaryKey` = ?", [$testId]);
         if ($result[0]['cnt'] == 1) {
             echo "✓ Record visible within transaction\n";
         }
@@ -89,7 +88,7 @@ try {
         echo "✓ Transaction rolled back\n";
         
         // Verify record was rolled back
-        $result = $dbManager->query('slave', "SELECT COUNT(*) as cnt FROM `$testTable` WHERE id = ?", [$testId]);
+        $result = $dbManager->query('slave', "SELECT COUNT(*) as cnt FROM `$testTable` WHERE `$primaryKey` = ?", [$testId]);
         if ($result[0]['cnt'] == 0) {
             echo "✓ Record properly rolled back\n";
         } else {

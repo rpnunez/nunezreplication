@@ -468,28 +468,41 @@ class ReplicationEngine
         $inserted = 0;
         $updated = 0;
 
+        // Determine target database - use master for primary writes
+        $targetDb = 'master';
+        
+        // Verify the connection exists
+        try {
+            $this->dbManager->getConnection($targetDb);
+        } catch (\Exception $e) {
+            throw new \Exception("Target database '$targetDb' not connected. Configure 'master' database connection.");
+        }
+
         // Start transaction
-        $this->dbManager->beginTransaction('slave');
+        $this->dbManager->beginTransaction($targetDb);
 
         try {
             foreach ($data as $row) {
                 // Check if row exists
                 $exists = $this->dbManager->query(
-                    'slave',
+                    $targetDb,
                     "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
                     [$row[$primaryKey]]
                 );
 
                 if (empty($exists)) {
-                    $this->insertRow('slave', $tableName, $row);
+                    $this->insertRow($targetDb, $tableName, $row);
                     $inserted++;
                 } else {
-                    $this->updateRow('slave', $tableName, $row, $primaryKey);
+                    $this->updateRow($targetDb, $tableName, $row, $primaryKey);
                     $updated++;
                 }
+                
+                // Record sync metadata for incremental sync tracking
+                $this->metadata->recordSync($targetDb, $tableName, $row[$primaryKey]);
             }
 
-            $this->dbManager->commit('slave');
+            $this->dbManager->commit($targetDb);
 
             return [
                 'inserted' => $inserted,
@@ -497,7 +510,7 @@ class ReplicationEngine
                 'total' => count($data)
             ];
         } catch (\Exception $e) {
-            $this->dbManager->rollback('slave');
+            $this->dbManager->rollback($targetDb);
             throw $e;
         }
     }

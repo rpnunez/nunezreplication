@@ -46,7 +46,12 @@ try {
         echo "[" . date('Y-m-d H:i:s') . "] Local sync completed in {$localResult['duration']}s\n";
     } else {
         echo "[" . date('Y-m-d H:i:s') . "] Local sync failed: {$localResult['error']}\n";
-        echo "[" . date('Y-m-d H:i:s') . "] Continuing with remote sync...\n";
+        echo "[" . date('Y-m-d H:i:s') . "] ERROR: Cannot proceed with remote sync due to local sync failure\n";
+        
+        // Close connections
+        $dbManager->closeAll();
+        
+        exit(1);
     }
 
     // Then, sync with remote environments

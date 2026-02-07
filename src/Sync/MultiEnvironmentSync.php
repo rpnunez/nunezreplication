@@ -3,7 +3,6 @@
 namespace NunezReplication\Sync;
 
 use NunezReplication\Api\ApiClient;
-use NunezReplication\Database\DatabaseManager;
 use NunezReplication\Replication\ReplicationEngine;
 
 /**
@@ -108,18 +107,14 @@ class MultiEnvironmentSync
     private function pushTableToRemote(ApiClient $client, $tableConfig)
     {
         $tableName = $tableConfig['name'];
-        $timestampColumn = $tableConfig['timestampColumn'] ?? 'updated_at';
 
-        // Get metadata from remote to determine what needs to be synced
-        try {
-            $remoteMetadata = $client->getMetadata($tableName);
-            $lastSync = $remoteMetadata['metadata']['last_sync'] ?? null;
-        } catch (\Exception $e) {
-            // If metadata fetch fails, sync all data
-            $lastSync = null;
-        }
+        // Note: We do not use metadata for incremental sync cursor because
+        // metadata.last_sync is based on NOW() and not the table's timestamp column,
+        // which can cause rows to be missed. Always perform full sync until
+        // per-table timestamp-based cursors are implemented.
+        $lastSync = null;
 
-        // Pull data from local that's newer than remote's last sync
+        // Pull data from local
         $data = $this->localEngine->pullDataFromLocal($tableName, $lastSync);
 
         if (empty($data)) {
@@ -143,14 +138,10 @@ class MultiEnvironmentSync
     {
         $tableName = $tableConfig['name'];
 
-        // Get local metadata to determine what needs to be synced
-        try {
-            $localMetadata = $this->localEngine->getTableMetadata($tableName);
-            $lastSync = $localMetadata['last_sync'] ?? null;
-        } catch (\Exception $e) {
-            // If metadata fetch fails, pull all data
-            $lastSync = null;
-        }
+        // Note: We do not use local metadata.last_sync as a cursor because it is based
+        // on NOW() and not the table's timestamp column, which can cause rows to be missed.
+        // Always perform full sync until per-table timestamp-based cursors are implemented.
+        $lastSync = null;
 
         // Pull data from remote
         $response = $client->pullData($tableName, $lastSync);

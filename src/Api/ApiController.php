@@ -29,6 +29,12 @@ class ApiController
 
     public function getConfig()
     {
+        // Authenticate API request - config may contain sensitive data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+
         // Return config without sensitive data
         $safeConfig = $this->config;
         
@@ -36,6 +42,11 @@ class ApiController
             foreach ($safeConfig['databases'] as $key => &$db) {
                 unset($db['password']);
             }
+        }
+        
+        // Remove API keys from response
+        if (isset($safeConfig['api']['keys'])) {
+            unset($safeConfig['api']['keys']);
         }
         
         return $safeConfig;
@@ -142,9 +153,15 @@ class ApiController
 
     private function authenticateRequest()
     {
-        // Check for API key in header
+        // Check for API key in header (case-insensitive)
         $headers = getallheaders();
-        $apiKey = $headers['X-API-Key'] ?? $headers['X-Api-Key'] ?? null;
+        if ($headers === false) {
+            $headers = [];
+        }
+        
+        // Normalize header keys to lowercase for case-insensitive lookup
+        $normalizedHeaders = array_change_key_case($headers, CASE_LOWER);
+        $apiKey = $normalizedHeaders['x-api-key'] ?? null;
 
         // Get configured API keys
         $configuredKeys = $this->config['api']['keys'] ?? [];
@@ -154,7 +171,17 @@ class ApiController
             return true;
         }
 
-        // Validate API key
-        return in_array($apiKey, $configuredKeys);
+        // Validate API key using constant-time comparison to prevent timing attacks
+        if ($apiKey === null) {
+            return false;
+        }
+        
+        foreach ($configuredKeys as $validKey) {
+            if (hash_equals($validKey, $apiKey)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }
