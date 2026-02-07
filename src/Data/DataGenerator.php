@@ -99,9 +99,9 @@ class DataGenerator
             $placeholders = array_map(function($col) { return ":$col"; }, $columnNames);
             
             $sql = sprintf(
-                "INSERT INTO %s (%s) VALUES (%s)",
+                "INSERT INTO `%s` (%s) VALUES (%s)",
                 $tableName,
-                implode(', ', $columnNames),
+                implode(', ', array_map(function($col) { return "`$col`"; }, $columnNames)),
                 implode(', ', $placeholders)
             );
             
@@ -119,7 +119,16 @@ class DataGenerator
      */
     private function getTableColumns($tableName)
     {
-        $stmt = $this->pdo->prepare("SHOW COLUMNS FROM $tableName");
+        // Validate table name exists in database to prevent SQL injection
+        $stmt = $this->pdo->query("SHOW TABLES");
+        $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        if (!in_array($tableName, $tables)) {
+            throw new \Exception("Invalid table name: $tableName");
+        }
+        
+        // Table name is validated, safe to use in query
+        $stmt = $this->pdo->prepare("SHOW COLUMNS FROM `$tableName`");
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -143,7 +152,8 @@ class DataGenerator
             }
             
             // Skip timestamp columns with CURRENT_TIMESTAMP default
-            if (strpos($columnType, 'timestamp') !== false && strpos($column['Default'], 'CURRENT_TIMESTAMP') !== false) {
+            $defaultValue = $column['Default'] ?? null;
+            if (strpos($columnType, 'timestamp') !== false && $defaultValue !== null && strpos($defaultValue, 'CURRENT_TIMESTAMP') !== false) {
                 continue;
             }
             
@@ -205,8 +215,14 @@ class DataGenerator
             return ['updated' => 0, 'message' => 'No primary key found'];
         }
         
-        // Get random rows to update
-        $stmt = $this->pdo->query("SELECT $primaryKey FROM $tableName ORDER BY RAND() LIMIT $updateCount");
+        // Sanitize limit value
+        $limit = (int)$updateCount;
+        if ($limit <= 0) {
+            return ['updated' => 0, 'message' => 'Invalid update count'];
+        }
+        
+        // Get random rows to update (table and column names already validated)
+        $stmt = $this->pdo->query("SELECT `$primaryKey` FROM `$tableName` ORDER BY RAND() LIMIT $limit");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         $updatedCount = 0;
@@ -223,11 +239,11 @@ class DataGenerator
             if (!empty($updateData)) {
                 $setParts = [];
                 foreach (array_keys($updateData) as $col) {
-                    $setParts[] = "$col = :$col";
+                    $setParts[] = "`$col` = :$col";
                 }
                 
                 $sql = sprintf(
-                    "UPDATE %s SET %s WHERE %s = :pk_value",
+                    "UPDATE `%s` SET %s WHERE `%s` = :pk_value",
                     $tableName,
                     implode(', ', $setParts),
                     $primaryKey
@@ -318,7 +334,8 @@ class DataGenerator
      */
     private function getPrimaryKey($tableName)
     {
-        $stmt = $this->pdo->query("SHOW KEYS FROM $tableName WHERE Key_name = 'PRIMARY'");
+        // Table name already validated in getTableColumns
+        $stmt = $this->pdo->query("SHOW KEYS FROM `$tableName` WHERE Key_name = 'PRIMARY'");
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return $result ? $result['Column_name'] : null;
     }
@@ -358,7 +375,7 @@ class DataGenerator
     
     private function generatePhone()
     {
-        return sprintf('%03d-%04d', rand(100, 999), rand(1000, 9999));
+        return sprintf('(%03d) %03d-%04d', rand(100, 999), rand(100, 999), rand(1000, 9999));
     }
     
     private function generateAddress()

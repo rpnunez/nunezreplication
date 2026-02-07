@@ -1210,16 +1210,38 @@ function closeIntroduceUpdatesModal() {
 
 // Initialize data management when page loads
 async function initDataManagement() {
-    // Set up event listeners
-    document.getElementById('generateDataButton').addEventListener('click', openGenerateDataModal);
-    document.getElementById('introduceUpdatesButton').addEventListener('click', openIntroduceUpdatesModal);
+    // Set up event listeners with null checks
+    const generateDataBtn = document.getElementById('generateDataButton');
+    const introduceUpdatesBtn = document.getElementById('introduceUpdatesButton');
+    const generateDbSelect = document.getElementById('generateDatabaseSelect');
+    const updateDbSelect = document.getElementById('updateDatabaseSelect');
+    const generateConfirmBtn = document.getElementById('generateDataConfirmButton');
+    const generateCancelBtn = document.getElementById('generateDataCancelButton');
+    const updateConfirmBtn = document.getElementById('updateDataConfirmButton');
+    const updateCancelBtn = document.getElementById('updateDataCancelButton');
     
-    document.getElementById('generateDatabaseSelect').addEventListener('change', onGenerateDatabaseChange);
-    document.getElementById('updateDatabaseSelect').addEventListener('change', onUpdateDatabaseChange);
-    
-    document.getElementById('generateDataConfirmButton').addEventListener('click', confirmGenerateData);
-    document.getElementById('generateDataCancelButton').addEventListener('click', closeGenerateDataModal);
-    
-    document.getElementById('updateDataConfirmButton').addEventListener('click', confirmIntroduceUpdates);
-    document.getElementById('updateDataCancelButton').addEventListener('click', closeIntroduceUpdatesModal);
+    if (generateDataBtn) {
+        generateDataBtn.addEventListener('click', openGenerateDataModal);
+    }
+    if (introduceUpdatesBtn) {
+        introduceUpdatesBtn.addEventListener('click', openIntroduceUpdatesModal);
+    }
+    if (generateDbSelect) {
+        generateDbSelect.addEventListener('change', onGenerateDatabaseChange);
+    }
+    if (updateDbSelect) {
+        updateDbSelect.addEventListener('change', onUpdateDatabaseChange);
+    }
+    if (generateConfirmBtn) {
+        generateConfirmBtn.addEventListener('click', confirmGenerateData);
+    }
+    if (generateCancelBtn) {
+        generateCancelBtn.addEventListener('click', closeGenerateDataModal);
+    }
+    if (updateConfirmBtn) {
+        updateConfirmBtn.addEventListener('click', confirmIntroduceUpdates);
+    }
+    if (updateCancelBtn) {
+        updateCancelBtn.addEventListener('click', closeIntroduceUpdatesModal);
+    }
 }

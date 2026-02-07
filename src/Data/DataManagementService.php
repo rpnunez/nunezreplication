@@ -70,7 +70,8 @@ class DataManagementService
         $relationships = [];
         
         foreach ($tables as $table) {
-            $stmt = $pdo->query("
+            // Use parameterized query for table name
+            $stmt = $pdo->prepare("
                 SELECT 
                     COLUMN_NAME,
                     REFERENCED_TABLE_NAME,
@@ -79,9 +80,10 @@ class DataManagementService
                     INFORMATION_SCHEMA.KEY_COLUMN_USAGE
                 WHERE 
                     TABLE_SCHEMA = DATABASE()
-                    AND TABLE_NAME = '$table'
+                    AND TABLE_NAME = ?
                     AND REFERENCED_TABLE_NAME IS NOT NULL
             ");
+            $stmt->execute([$table]);
             
             $fks = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             
