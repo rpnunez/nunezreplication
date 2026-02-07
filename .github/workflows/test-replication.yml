@@ -409,3 +409,473 @@ jobs:
           
           # Stop server
           kill $SERVER_PID || true
+
+  test-multi-environment:
+    name: Test Multi-Environment Replication
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql-local-master:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_local_master
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+      
+      mysql-local-slave:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_local_slave
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+      
+      mysql-remote:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: banking_remote
+          MYSQL_ALLOW_EMPTY_PASSWORD: "no"
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: pdo, pdo_mysql, json, curl
+          coverage: none
+      
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq mysql-client
+      
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+      
+      - name: Wait for MySQL services
+        run: |
+          echo "Waiting for MySQL services to be ready..."
+          for i in {1..30}; do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -u root -ptest_password --silent 2>/dev/null && \
+               mysqladmin ping -h 127.0.0.1 -P 3307 -u root -ptest_password --silent 2>/dev/null && \
+               mysqladmin ping -h 127.0.0.1 -P 3308 -u root -ptest_password --silent 2>/dev/null; then
+              echo "All MySQL services are ready"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+          echo "MySQL services failed to become ready"
+          exit 1
+      
+      - name: Initialize local databases
+        run: |
+          echo "Initializing local master database..."
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_local_master < tests/banking_schema.sql
+          
+          echo "Initializing local slave database (schema only)..."
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_local_slave < tests/banking_schema.sql
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_local_slave -e "
+            SET FOREIGN_KEY_CHECKS=0;
+            TRUNCATE TABLE transactions;
+            TRUNCATE TABLE accounts;
+            TRUNCATE TABLE customers;
+            SET FOREIGN_KEY_CHECKS=1;
+          "
+          
+          echo "Initializing remote database with additional data..."
+          mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote < tests/banking_schema.sql
+          mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
+            INSERT INTO customers (first_name, last_name, email, phone, address) 
+            VALUES ('Remote', 'Customer', 'remote.customer@example.com', '555-9999', '999 Remote St, Remote City, RC 99999');
+          "
+      
+      - name: Create local environment config
+        run: |
+          cat > config.test.multi-local.json << 'EOF'
+          {
+            "mode": "master-slave",
+            "syncInterval": "*/5 * * * *",
+            "port": 8080,
+            "demoMode": false,
+            "api": {
+              "keys": ["test-local-api-key"]
+            },
+            "remoteEnvironments": {
+              "remote-env": {
+                "url": "http://localhost:8081",
+                "apiKey": "test-remote-api-key",
+                "syncMode": "bidirectional",
+                "timeout": 30
+              }
+            },
+            "databases": {
+              "master": {
+                "host": "127.0.0.1",
+                "port": 3306,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_local_master"
+              },
+              "slave": {
+                "host": "127.0.0.1",
+                "port": 3307,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_local_slave"
+              }
+            },
+            "replication": {
+              "tables": [
+                {
+                  "name": "customers",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "accounts",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "transactions",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                }
+              ]
+            }
+          }
+          EOF
+      
+      - name: Create remote environment config
+        run: |
+          cat > config.test.multi-remote.json << 'EOF'
+          {
+            "mode": "master-slave",
+            "syncInterval": "*/5 * * * *",
+            "port": 8081,
+            "demoMode": false,
+            "api": {
+              "keys": ["test-remote-api-key"]
+            },
+            "databases": {
+              "master": {
+                "host": "127.0.0.1",
+                "port": 3308,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_remote"
+              },
+              "slave": {
+                "host": "127.0.0.1",
+                "port": 3308,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_remote"
+              }
+            },
+            "replication": {
+              "tables": [
+                {
+                  "name": "customers",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "accounts",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                },
+                {
+                  "name": "transactions",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                }
+              ]
+            }
+          }
+          EOF
+      
+      - name: Start remote API server
+        run: |
+          cp config.test.multi-remote.json config.json
+          php -S localhost:8081 -t public public/index.php > remote-server.log 2>&1 &
+          REMOTE_PID=$!
+          echo $REMOTE_PID > remote-server.pid
+          sleep 3
+          
+          echo "Testing remote API server..."
+          curl -s http://localhost:8081/api/status | jq '.'
+      
+      - name: Verify databases before sync
+        run: |
+          echo "=== Local Master Database (before sync) ==="
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_local_master -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Local Slave Database (before sync) ==="
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_local_slave -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Remote Database (before sync) ==="
+          mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+      
+      - name: Test API endpoints with authentication
+        run: |
+          echo "=== Testing Remote API Endpoints with Authentication ==="
+          
+          echo "Testing /api/status endpoint"
+          STATUS=$(curl -s http://localhost:8081/api/status)
+          echo "$STATUS" | jq '.'
+          
+          echo "Testing /api/metadata endpoint with auth"
+          curl -s -H "X-API-Key: test-remote-api-key" \
+            "http://localhost:8081/api/metadata?table=customers" | jq '.'
+          
+          echo "Testing /api/pull endpoint with auth"
+          curl -s -H "X-API-Key: test-remote-api-key" \
+            "http://localhost:8081/api/pull?table=customers" | jq '.'
+      
+      - name: Run multi-environment sync
+        run: |
+          echo "=== Running Multi-Environment Sync ==="
+          php src/sync_multi.php config.test.multi-local.json
+      
+      - name: Verify databases after sync
+        run: |
+          echo "=== Local Master Database (after sync) ==="
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_local_master -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Local Slave Database (after sync) ==="
+          mysql -h 127.0.0.1 -P 3307 -u root -ptest_password banking_local_slave -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+          
+          echo "=== Remote Database (after sync) ==="
+          mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
+            SELECT 'Customers' as table_name, COUNT(*) as count FROM customers
+            UNION ALL
+            SELECT 'Accounts', COUNT(*) FROM accounts
+            UNION ALL
+            SELECT 'Transactions', COUNT(*) FROM transactions;
+          "
+      
+      - name: Verify bidirectional sync
+        run: |
+          echo "=== Verify Bidirectional Sync ==="
+          
+          echo "Checking if remote customer exists in local master:"
+          REMOTE_CUSTOMER=$(mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_local_master -e "
+            SELECT COUNT(*) as count FROM customers WHERE email = 'remote.customer@example.com';
+          " -s -N)
+          
+          if [ "$REMOTE_CUSTOMER" -eq "1" ]; then
+            echo "✓ Remote customer successfully synced to local master"
+          else
+            echo "✗ Remote customer NOT found in local master"
+            exit 1
+          fi
+          
+          echo "Checking if local customers exist in remote:"
+          LOCAL_CUSTOMER=$(mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
+            SELECT COUNT(*) as count FROM customers WHERE email LIKE '%@example.com' AND email != 'remote.customer@example.com';
+          " -s -N)
+          
+          if [ "$LOCAL_CUSTOMER" -gt "0" ]; then
+            echo "✓ Local customers successfully synced to remote"
+          else
+            echo "✗ Local customers NOT found in remote"
+            exit 1
+          fi
+      
+      - name: Test API push endpoint
+        run: |
+          echo "=== Testing API Push Endpoint ==="
+          
+          # Add a new customer to local master
+          mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_local_master -e "
+            INSERT INTO customers (first_name, last_name, email, phone, address) 
+            VALUES ('API', 'Test', 'api.test@example.com', '555-1111', '111 API St, Test City, TC 11111');
+          "
+          
+          # Test push endpoint
+          curl -s -X POST http://localhost:8081/api/push \
+            -H "X-API-Key: test-remote-api-key" \
+            -H "Content-Type: application/json" \
+            -d '{"table":"customers","data":[{"id":999,"first_name":"Pushed","last_name":"Customer","email":"pushed@example.com","phone":"555-2222","address":"222 Push St"}]}' \
+            | jq '.'
+          
+          # Verify the pushed customer exists in remote
+          PUSHED_CUSTOMER=$(mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
+            SELECT COUNT(*) as count FROM customers WHERE email = 'pushed@example.com';
+          " -s -N)
+          
+          if [ "$PUSHED_CUSTOMER" -eq "1" ]; then
+            echo "✓ Customer successfully pushed via API"
+          else
+            echo "✗ Pushed customer NOT found in remote"
+            exit 1
+          fi
+      
+      - name: Test sync modes (push-only)
+        run: |
+          echo "=== Testing Push-Only Sync Mode ==="
+          
+          # Create config with push-only mode
+          cat > config.test.multi-push.json << 'EOF'
+          {
+            "mode": "master-slave",
+            "api": {
+              "keys": ["test-local-api-key"]
+            },
+            "remoteEnvironments": {
+              "remote-env": {
+                "url": "http://localhost:8081",
+                "apiKey": "test-remote-api-key",
+                "syncMode": "push",
+                "timeout": 30
+              }
+            },
+            "databases": {
+              "master": {
+                "host": "127.0.0.1",
+                "port": 3306,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_local_master"
+              },
+              "slave": {
+                "host": "127.0.0.1",
+                "port": 3307,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_local_slave"
+              }
+            },
+            "replication": {
+              "tables": [
+                {
+                  "name": "customers",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                }
+              ]
+            }
+          }
+          EOF
+          
+          php src/sync_multi.php config.test.multi-push.json
+          echo "✓ Push-only sync mode test completed"
+      
+      - name: Test error handling
+        run: |
+          echo "=== Testing Error Handling for Unreachable Remote ==="
+          
+          # Create config with unreachable remote
+          cat > config.test.multi-error.json << 'EOF'
+          {
+            "mode": "master-slave",
+            "api": {
+              "keys": ["test-local-api-key"]
+            },
+            "remoteEnvironments": {
+              "unreachable-env": {
+                "url": "http://localhost:9999",
+                "apiKey": "test-key",
+                "syncMode": "bidirectional",
+                "timeout": 5
+              }
+            },
+            "databases": {
+              "master": {
+                "host": "127.0.0.1",
+                "port": 3306,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_local_master"
+              },
+              "slave": {
+                "host": "127.0.0.1",
+                "port": 3307,
+                "user": "root",
+                "password": "test_password",
+                "database": "banking_local_slave"
+              }
+            },
+            "replication": {
+              "tables": [
+                {
+                  "name": "customers",
+                  "ignoreColumns": [],
+                  "primaryKey": "id"
+                }
+              ]
+            }
+          }
+          EOF
+          
+          # This should complete local sync but fail remote sync gracefully
+          php src/sync_multi.php config.test.multi-error.json || true
+          echo "✓ Error handling test completed"
+      
+      - name: Stop servers
+        if: always()
+        run: |
+          if [ -f remote-server.pid ]; then
+            REMOTE_PID=$(cat remote-server.pid)
+            kill $REMOTE_PID || true
+          fi
+      
+      - name: Show server logs on failure
+        if: failure()
+        run: |
+          echo "=== Remote Server Logs ==="
+          cat remote-server.log || echo "No remote server logs found"
