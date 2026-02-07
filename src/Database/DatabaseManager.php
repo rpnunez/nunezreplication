@@ -75,6 +75,56 @@ class DatabaseManager
         }
     }
 
+    public function beginTransaction($name)
+    {
+        $connection = $this->getConnection($name);
+        
+        try {
+            $connection->beginTransaction();
+            error_log("Started transaction on $name");
+            return true;
+        } catch (PDOException $e) {
+            error_log("Error starting transaction on $name: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function commit($name)
+    {
+        $connection = $this->getConnection($name);
+        
+        try {
+            $connection->commit();
+            error_log("Committed transaction on $name");
+            return true;
+        } catch (PDOException $e) {
+            error_log("Error committing transaction on $name: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function rollback($name)
+    {
+        $connection = $this->getConnection($name);
+        
+        try {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+                error_log("Rolled back transaction on $name");
+            }
+            return true;
+        } catch (PDOException $e) {
+            error_log("Error rolling back transaction on $name: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function inTransaction($name)
+    {
+        $connection = $this->getConnection($name);
+        return $connection->inTransaction();
+    }
+
     public function closeAll()
     {
         foreach (array_keys($this->connections) as $name) {
