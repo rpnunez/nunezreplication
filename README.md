@@ -5,6 +5,9 @@ A standalone PHP application for replicating data between MySQL databases with s
 ## Features
 
 - **Flexible Replication Modes**: Support for Master-Slave and Master-Master replication
+- **Timestamp-Based Tracking**: Track row modifications and last sync times for intelligent conflict resolution
+- **Update Detection**: Automatically detect and replicate row-level updates using timestamp comparison
+- **Delete Tracking**: Handle deletions with metadata tracking to ensure consistency
 - **Configurable Sync**: Define which tables to replicate and which columns to ignore
 - **REST API**: Programmatic access to replication status and manual sync triggers
 - **Real-time Dashboard**: Web UI with live status updates and statistics
@@ -68,23 +71,69 @@ The application uses a JSON configuration file. Here's what each setting means:
       {
         "name": "users",                              // Table name
         "ignoreColumns": ["password_hash"],          // Columns to exclude
-        "primaryKey": "id"                           // Primary key for updates
+        "primaryKey": "id",                          // Primary key for updates
+        "timestampColumn": "updated_at"              // Column used for update tracking
       }
     ]
   }
 }
 ```
 
+### Configuration Options
+
+**timestampColumn** (default: `updated_at`): Specifies which column to use for tracking row modifications. This column should be a TIMESTAMP or DATETIME that updates automatically when rows are modified (e.g., `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`).
+
+**Tracking Features** (always enabled):
+- Automatic metadata table creation (`_replication_metadata`)
+- Timestamp-based conflict resolution
+- Deletion tracking and propagation
+- Last sync tracking per row
+
 ### Replication Modes
 
 **Master-Slave**: Data flows from master to slave (one-way sync)
 - All changes from master are replicated to slave
+- Updates are tracked using timestamps to avoid unnecessary writes
+- Deletions in master are propagated to slave
 - Slave database is kept in sync with master
 
 **Master-Master**: Bidirectional sync between databases
 - Changes from master are synced to slave
-- New records from slave are synced back to master
-- Existing master records are not overwritten by slave
+- Changes from slave are synced back to master
+- **With timestamp columns configured**: Last-write-wins conflict resolution
+  - Updates are compared by timestamp
+  - Most recent change wins regardless of origin
+- **Without timestamp columns**: Master takes precedence
+  - Only new records from slave are synced to master
+  - Existing master records are not overwritten by slave
+
+### How Updates and Deletes Work
+
+**Update Tracking**:
+- Each table should have an `updated_at` or similar timestamp column
+- During sync, timestamps are compared to determine if an update is needed
+- Only rows with newer timestamps are replicated, reducing unnecessary writes
+- Metadata table tracks last sync time for each row
+
+**Delete Tracking**:
+- A `_replication_metadata` table is created automatically
+- Rows deleted from source are detected by comparing primary keys
+- Deletions are propagated to target database
+- Delete metadata is maintained for audit purposes
+
+**Metadata Table**:
+```sql
+CREATE TABLE _replication_metadata (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    table_name VARCHAR(255) NOT NULL,
+    primary_key_value VARCHAR(255) NOT NULL,
+    last_sync_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    deleted_at TIMESTAMP NULL,
+    UNIQUE KEY uk_table_pk (table_name, primary_key_value),
+    INDEX idx_deleted (is_deleted, deleted_at)
+);
+```
 
 ## Usage
 
@@ -169,25 +218,30 @@ The web dashboard provides:
 nunezreplication/
 ├── src/
 │   ├── Config/
-│   │   └── ConfigLoader.php       # Configuration management
+│   │   └── ConfigLoader.php           # Configuration management
 │   ├── Database/
-│   │   └── DatabaseManager.php    # Database connection handler
+│   │   └── DatabaseManager.php        # Database connection handler
 │   ├── Replication/
-│   │   └── ReplicationEngine.php  # Core replication logic
+│   │   ├── ReplicationEngine.php      # Core replication logic
+│   │   └── ReplicationMetadata.php    # Metadata tracking system
 │   ├── Api/
-│   │   ├── Router.php             # API routing
-│   │   └── ApiController.php      # API endpoints
-│   └── sync.php                   # CLI sync script
+│   │   ├── Router.php                 # API routing
+│   │   └── ApiController.php          # API endpoints
+│   └── sync.php                       # CLI sync script
 ├── public/
-│   ├── index.php                  # Application entry point
-│   ├── index.html                 # Dashboard UI
+│   ├── index.php                      # Application entry point
+│   ├── index.html                     # Dashboard UI
 │   ├── css/
-│   │   └── style.css              # Dashboard styles
+│   │   └── style.css                  # Dashboard styles
 │   └── js/
-│       └── app.js                 # Dashboard JavaScript
-├── config.json                    # Your configuration
-├── config.example.json            # Example configuration
-└── composer.json                  # PHP dependencies
+│       └── app.js                     # Dashboard JavaScript
+├── tests/
+│   ├── test_replication.php                    # Basic replication tests
+│   ├── test_update_delete_replication.php      # Update/delete tests
+│   └── banking_schema.sql                      # Test schema
+├── config.json                        # Your configuration
+├── config.example.json                # Example configuration
+└── composer.json                      # PHP dependencies
 
 ```
 
@@ -238,16 +292,35 @@ To run the replication tests locally, you'll need:
    ```bash
    php src/sync.php config.test.json
    ```
-5. Verify the replication:
+5. Verify basic replication:
    ```bash
    php tests/test_replication.php config.test.json
    ```
+6. Test update and delete functionality:
+   ```bash
+   php tests/test_update_delete_replication.php config.test.json
+   ```
+
+### Test Suites
+
+**test_replication.php**: Basic replication tests
+- Validates row counts match between master and slave
+- Checks data integrity for specific records
+- Tests both master-slave and master-master modes
+
+**test_update_delete_replication.php**: Advanced tracking tests
+- **Update Replication Test**: Verifies that row updates are detected and replicated
+- **Delete Replication Test**: Confirms deletions are properly tracked and propagated
+- **Timestamp Conflict Resolution**: Tests last-write-wins logic for master-master mode
+- **Metadata Tracking Test**: Validates that metadata tables are created and maintained
 
 ### GitHub Actions Workflow
 
 The CI/CD pipeline automatically tests:
 - **Master-Slave Replication**: Verifies one-way data synchronization
 - **Master-Master Replication**: Validates bidirectional sync with conflict resolution
+- **Update Tracking**: Tests row-level update detection and replication
+- **Delete Tracking**: Ensures deletions are properly handled
 - **API Endpoints**: Tests status, config, and manual sync triggers
 - **Data Integrity**: Ensures data consistency across databases
 
