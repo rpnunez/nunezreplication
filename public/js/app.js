@@ -2,6 +2,10 @@
 const REFRESH_INTERVAL = 5000;
 let refreshTimer;
 
+// Config editor state
+let currentConfigFile = null;
+let configSchema = null;
+
 // Fetch and display status
 async function fetchStatus() {
     try {
@@ -407,6 +411,9 @@ async function init() {
         fetchRecentErrors()
     ]);
     
+    // Initialize config editor
+    await initConfigEditor();
+    
     // Set up auto-refresh (only refresh status and history)
     refreshTimer = setInterval(() => {
         fetchStatus();
@@ -427,3 +434,350 @@ window.addEventListener('beforeunload', () => {
         clearInterval(refreshTimer);
     }
 });
+
+// ============================================
+// CONFIG EDITOR FUNCTIONALITY
+// ============================================
+
+// Fetch and display config files list
+async function fetchConfigsList() {
+    try {
+        const response = await fetch('/api/configs');
+        const data = await response.json();
+        
+        if (data.success) {
+            updateConfigsList(data.configs);
+        } else {
+            showError('configsList', 'Failed to load configurations');
+        }
+    } catch (error) {
+        console.error('Error fetching configs:', error);
+        showError('configsList', 'Failed to load configurations');
+    }
+}
+
+// Update configs list display
+function updateConfigsList(configs) {
+    const configsList = document.getElementById('configsList');
+    configsList.innerHTML = '';
+    
+    if (!configs || configs.length === 0) {
+        configsList.innerHTML = '<p class="loading">No configuration files found</p>';
+        return;
+    }
+    
+    configs.forEach(config => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'config-file-item';
+        
+        const infoDiv = document.createElement('div');
+        infoDiv.className = 'config-file-info';
+        
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'config-filename';
+        nameDiv.textContent = config.filename;
+        
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'config-meta';
+        const date = new Date(config.modified * 1000);
+        metaDiv.textContent = `Size: ${(config.size / 1024).toFixed(2)} KB | Modified: ${date.toLocaleString()}`;
+        
+        infoDiv.appendChild(nameDiv);
+        infoDiv.appendChild(metaDiv);
+        
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'config-file-actions';
+        
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn btn-sm btn-primary';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = () => openConfigEditor(config.filename);
+        
+        actionsDiv.appendChild(editBtn);
+        
+        itemDiv.appendChild(infoDiv);
+        itemDiv.appendChild(actionsDiv);
+        
+        configsList.appendChild(itemDiv);
+    });
+}
+
+// Open config editor modal
+async function openConfigEditor(filename) {
+    try {
+        const response = await fetch(`/api/configs/file?filename=${encodeURIComponent(filename)}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert('Failed to load config: ' + data.error);
+            return;
+        }
+        
+        currentConfigFile = filename;
+        
+        // Load schema if not already loaded
+        if (!configSchema) {
+            const schemaResponse = await fetch('/api/configs/schema');
+            const schemaData = await schemaResponse.json();
+            if (schemaData.success) {
+                configSchema = schemaData.schema;
+            }
+        }
+        
+        // Set editor content
+        document.getElementById('configFilename').value = filename;
+        document.getElementById('configEditor').value = data.config.content;
+        document.getElementById('modalTitle').textContent = 'Edit Configuration: ' + filename;
+        
+        // Update help panel
+        updateConfigHelp();
+        
+        // Show modal
+        document.getElementById('configEditorModal').classList.add('active');
+        
+        // Clear status
+        document.getElementById('editorStatus').textContent = '';
+        document.getElementById('editorStatus').className = 'editor-status';
+        
+    } catch (error) {
+        console.error('Error opening config editor:', error);
+        alert('Failed to open config editor');
+    }
+}
+
+// Update config help panel
+function updateConfigHelp() {
+    const helpDiv = document.getElementById('configHelp');
+    
+    if (!configSchema) {
+        helpDiv.innerHTML = '<p>Loading help...</p>';
+        return;
+    }
+    
+    let html = '<div class="help-intro"><p><strong>Configuration Reference</strong></p><p>All available configuration options:</p></div>';
+    
+    Object.keys(configSchema).forEach(key => {
+        const field = configSchema[key];
+        html += `
+            <div class="help-section">
+                <div class="help-key">${key}</div>
+                <div class="help-type">${field.type}${field.required ? ' (required)' : ' (optional)'}</div>
+                <div class="help-description">${field.description}</div>
+        `;
+        
+        if (field.values) {
+            html += `<div class="help-values"><strong>Allowed values:</strong> ${field.values.join(', ')}</div>`;
+        }
+        
+        if (field.default !== undefined) {
+            html += `<div class="help-values"><strong>Default:</strong> ${JSON.stringify(field.default)}</div>`;
+        }
+        
+        if (field.properties) {
+            html += '<div class="help-values"><strong>Properties:</strong><ul>';
+            Object.keys(field.properties).forEach(prop => {
+                html += `<li><code>${prop}</code>: ${field.properties[prop]}</li>`;
+            });
+            html += '</ul></div>';
+        }
+        
+        html += '</div>';
+    });
+    
+    // Add examples section
+    html += `
+        <div class="help-section">
+            <h4>Example Configuration</h4>
+            <div class="help-example">{
+  "mode": "master-slave",
+  "syncInterval": "*/5 * * * *",
+  "databases": {
+    "master": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "database": "master_db"
+    },
+    "slave": {
+      "host": "localhost",
+      "port": 3307,
+      "user": "root",
+      "password": "password",
+      "database": "slave_db"
+    }
+  },
+  "replication": {
+    "tables": [{
+      "name": "users",
+      "primaryKey": "id",
+      "timestampColumn": "updated_at"
+    }]
+  }
+}</div>
+        </div>
+    `;
+    
+    helpDiv.innerHTML = html;
+}
+
+// Save config file
+async function saveConfigFile() {
+    const filename = document.getElementById('configFilename').value;
+    const content = document.getElementById('configEditor').value;
+    const statusDiv = document.getElementById('editorStatus');
+    
+    // Validate filename
+    if (!filename) {
+        statusDiv.className = 'editor-status error';
+        statusDiv.textContent = 'Please enter a filename';
+        return;
+    }
+    
+    // Show saving status
+    statusDiv.className = 'editor-status';
+    statusDiv.textContent = 'Saving...';
+    
+    try {
+        const response = await fetch('/api/configs/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ filename, content })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            statusDiv.className = 'editor-status success';
+            statusDiv.textContent = '✓ Configuration saved successfully!';
+            
+            // Refresh configs list
+            await fetchConfigsList();
+            
+            // Close modal after delay
+            setTimeout(() => {
+                closeConfigEditorModal();
+            }, 1500);
+        } else {
+            statusDiv.className = 'editor-status error';
+            statusDiv.textContent = '✗ Error: ' + data.error;
+        }
+    } catch (error) {
+        statusDiv.className = 'editor-status error';
+        statusDiv.textContent = '✗ Failed to save configuration';
+        console.error('Error saving config:', error);
+    }
+}
+
+// Open create config modal
+async function openCreateConfigModal() {
+    try {
+        const response = await fetch('/api/configs/templates');
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert('Failed to load templates');
+            return;
+        }
+        
+        const templatesDiv = document.getElementById('templatesList');
+        templatesDiv.innerHTML = '';
+        
+        data.templates.forEach(template => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'template-item';
+            itemDiv.onclick = () => createFromTemplate(template.id, template.name);
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'template-name';
+            nameDiv.textContent = template.name;
+            
+            const descDiv = document.createElement('div');
+            descDiv.className = 'template-description';
+            descDiv.textContent = template.description;
+            
+            itemDiv.appendChild(nameDiv);
+            itemDiv.appendChild(descDiv);
+            templatesDiv.appendChild(itemDiv);
+        });
+        
+        document.getElementById('createConfigModal').classList.add('active');
+    } catch (error) {
+        console.error('Error loading templates:', error);
+        alert('Failed to load templates');
+    }
+}
+
+// Create config from template
+async function createFromTemplate(templateId, templateName) {
+    const filename = prompt('Enter filename for new configuration:', `config.${templateId}.json`);
+    
+    if (!filename) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/configs/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ type: templateId, filename })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Close create modal
+            document.getElementById('createConfigModal').classList.remove('active');
+            
+            // Refresh list
+            await fetchConfigsList();
+            
+            // Open editor with new file
+            await openConfigEditor(data.result.filename);
+        } else {
+            alert('Failed to create config: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error creating config:', error);
+        alert('Failed to create configuration');
+    }
+}
+
+// Close modals
+function closeConfigEditorModal() {
+    document.getElementById('configEditorModal').classList.remove('active');
+    currentConfigFile = null;
+}
+
+function closeCreateConfigModal() {
+    document.getElementById('createConfigModal').classList.remove('active');
+}
+
+// Initialize config editor when page loads
+async function initConfigEditor() {
+    // Fetch configs list
+    await fetchConfigsList();
+    
+    // Set up event listeners
+    document.getElementById('createConfigButton').addEventListener('click', openCreateConfigModal);
+    document.getElementById('saveConfigButton').addEventListener('click', saveConfigFile);
+    document.getElementById('cancelConfigButton').addEventListener('click', closeConfigEditorModal);
+    
+    // Close modals on X click
+    document.querySelectorAll('.modal .close').forEach(closeBtn => {
+        closeBtn.addEventListener('click', (e) => {
+            e.target.closest('.modal').classList.remove('active');
+        });
+    });
+    
+    // Close modals on outside click
+    window.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal')) {
+            e.target.classList.remove('active');
+        }
+    });
+}

@@ -3,16 +3,19 @@
 namespace NunezReplication\Api;
 
 use NunezReplication\Replication\ReplicationEngine;
+use NunezReplication\Config\ConfigManager;
 
 class ApiController
 {
     private $engine;
     private $config;
+    private $configManager;
 
     public function __construct(ReplicationEngine $engine, $config)
     {
         $this->engine = $engine;
         $this->config = $config;
+        $this->configManager = new ConfigManager();
     }
 
     public function getStatus()
@@ -256,6 +259,155 @@ class ApiController
             ];
         } catch (\Exception $e) {
             http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    // Config management endpoints
+    public function listConfigs()
+    {
+        try {
+            $configs = $this->configManager->listConfigs();
+            return [
+                'success' => true,
+                'configs' => $configs
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function getConfigFile()
+    {
+        $filename = $_GET['filename'] ?? null;
+        
+        if (!$filename) {
+            http_response_code(400);
+            return ['error' => 'Missing filename parameter'];
+        }
+        
+        try {
+            $config = $this->configManager->getConfig($filename);
+            return [
+                'success' => true,
+                'config' => $config
+            ];
+        } catch (\Exception $e) {
+            http_response_code(404);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function saveConfigFile()
+    {
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        if (!isset($input['filename']) || !isset($input['content'])) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameters: filename and content'];
+        }
+        
+        try {
+            $result = $this->configManager->saveConfig($input['filename'], $input['content']);
+            return [
+                'success' => true,
+                'result' => $result
+            ];
+        } catch (\Exception $e) {
+            http_response_code(400);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function getConfigTemplates()
+    {
+        try {
+            $templates = $this->configManager->getAvailableTemplates();
+            return [
+                'success' => true,
+                'templates' => $templates
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function getConfigSchema()
+    {
+        try {
+            $schema = $this->configManager->getConfigSchema();
+            return [
+                'success' => true,
+                'schema' => $schema
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function createConfigFromTemplate()
+    {
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        if (!isset($input['type'])) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameter: type'];
+        }
+        
+        try {
+            $filename = $input['filename'] ?? null;
+            $result = $this->configManager->createFromTemplate($input['type'], $filename);
+            return [
+                'success' => true,
+                'result' => $result
+            ];
+        } catch (\Exception $e) {
+            http_response_code(400);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    public function deleteConfigFile()
+    {
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        if (!isset($input['filename'])) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameter: filename'];
+        }
+        
+        try {
+            $result = $this->configManager->deleteConfig($input['filename']);
+            return [
+                'success' => true,
+                'result' => $result
+            ];
+        } catch (\Exception $e) {
+            http_response_code(400);
             return [
                 'success' => false,
                 'error' => $e->getMessage()
