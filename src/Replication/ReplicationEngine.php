@@ -10,6 +10,8 @@ class ReplicationEngine
     private $config;
     private $stats;
     private $metadata;
+    private $statsDB;
+    private $currentSyncId;
 
     public function __construct(DatabaseManager $dbManager, $config)
     {
@@ -27,6 +29,23 @@ class ReplicationEngine
             'inserts' => 0,
             'deletes' => 0
         ];
+        
+        // Initialize stats database if configured
+        if (isset($config['databases']['stats'])) {
+            try {
+                $this->statsDB = new ReplicationStatsDB($config['databases']['stats']);
+                error_log("Replication stats database initialized");
+                
+                // Load overall stats from database
+                $this->loadStatsFromDB();
+            } catch (\Exception $e) {
+                error_log("Warning: Could not initialize stats database: " . $e->getMessage());
+                $this->statsDB = null;
+            }
+        } else {
+            error_log("No stats database configured, using in-memory stats only");
+            $this->statsDB = null;
+        }
     }
 
     public function sync()
@@ -37,6 +56,22 @@ class ReplicationEngine
         $this->stats['updates'] = 0;
         $this->stats['inserts'] = 0;
         $this->stats['deletes'] = 0;
+        
+        // Reset currentSyncId to prevent using stale ID if startSync() throws
+        $this->currentSyncId = null;
+        
+        // Start sync in stats DB
+        if ($this->statsDB) {
+            try {
+                $this->currentSyncId = $this->statsDB->startSync($this->config['mode']);
+                $this->statsDB->logOperation($this->currentSyncId, 'info', 'Sync started', [
+                    'mode' => $this->config['mode'],
+                    'tables' => count($this->config['replication']['tables'])
+                ]);
+            } catch (\Exception $e) {
+                error_log("Warning: Could not record sync start in stats DB: " . $e->getMessage());
+            }
+        }
 
         try {
             // Initialize metadata tables for tracking
@@ -53,7 +88,23 @@ class ReplicationEngine
             $this->stats['lastError'] = null;
             
             $duration = round(microtime(true) - $startTime, 2);
+            $this->stats['duration'] = $duration;
             error_log("Replication sync completed successfully in {$duration}s");
+            
+            // Record success in stats DB
+            if ($this->statsDB && $this->currentSyncId) {
+                try {
+                    $this->statsDB->completeSyncSuccess($this->currentSyncId, $this->stats);
+                    $this->statsDB->logOperation($this->currentSyncId, 'info', 'Sync completed successfully', [
+                        'duration' => $duration,
+                        'inserts' => $this->stats['inserts'],
+                        'updates' => $this->stats['updates'],
+                        'deletes' => $this->stats['deletes']
+                    ]);
+                } catch (\Exception $e) {
+                    error_log("Warning: Could not record sync success in stats DB: " . $e->getMessage());
+                }
+            }
             
             return [
                 'success' => true,
@@ -63,7 +114,22 @@ class ReplicationEngine
         } catch (\Exception $e) {
             $this->stats['failedSyncs']++;
             $this->stats['lastError'] = $e->getMessage();
+            $duration = round(microtime(true) - $startTime, 2);
+            $this->stats['duration'] = $duration;
             error_log("Replication sync failed: " . $e->getMessage());
+            
+            // Record failure in stats DB
+            if ($this->statsDB && $this->currentSyncId) {
+                try {
+                    $this->statsDB->completeSyncFailure($this->currentSyncId, $e->getMessage(), $this->stats);
+                    $this->statsDB->logOperation($this->currentSyncId, 'error', 'Sync failed: ' . $e->getMessage(), [
+                        'exception' => get_class($e),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                } catch (\Exception $statsEx) {
+                    error_log("Warning: Could not record sync failure in stats DB: " . $statsEx->getMessage());
+                }
+            }
             
             return [
                 'success' => false,
@@ -172,6 +238,21 @@ class ReplicationEngine
                 'deletes' => $tableDeletes,
                 'timestamp' => date('Y-m-d H:i:s')
             ];
+            
+            // Record table stats in stats DB
+            if ($this->statsDB && $this->currentSyncId) {
+                try {
+                    $this->statsDB->recordTableStats($this->currentSyncId, $tableName, [
+                        'rows' => $synced,
+                        'inserts' => $tableInserts,
+                        'updates' => $tableUpdates,
+                        'deletes' => $tableDeletes,
+                        'timestamp' => date('Y-m-d H:i:s')
+                    ]);
+                } catch (\Exception $e) {
+                    error_log("Warning: Could not record table stats: " . $e->getMessage());
+                }
+            }
 
             error_log("Synced $synced rows for table: $tableName (Table stats - Inserts: $tableInserts, Updates: $tableUpdates, Deletes: $tableDeletes)");
             } catch (\Exception $e) {
@@ -329,6 +410,21 @@ class ReplicationEngine
                 'deletes' => $tableDeletes,
                 'timestamp' => date('Y-m-d H:i:s')
             ];
+            
+            // Record table stats in stats DB
+            if ($this->statsDB && $this->currentSyncId) {
+                try {
+                    $this->statsDB->recordTableStats($this->currentSyncId, $tableName, [
+                        'rows' => $synced,
+                        'inserts' => $tableInserts,
+                        'updates' => $tableUpdates,
+                        'deletes' => $tableDeletes,
+                        'timestamp' => date('Y-m-d H:i:s')
+                    ]);
+                } catch (\Exception $e) {
+                    error_log("Warning: Could not record table stats: " . $e->getMessage());
+                }
+            }
 
             error_log("Bidirectional sync completed: $synced operations for table: $tableName (Table stats - Inserts: $tableInserts, Updates: $tableUpdates, Deletes: $tableDeletes)");
             } catch (\Exception $e) {
@@ -443,7 +539,56 @@ class ReplicationEngine
 
     public function getStats()
     {
+        // If stats DB is available, supplement in-memory stats with database stats
+        if ($this->statsDB) {
+            try {
+                $dbStats = $this->statsDB->getOverallStats();
+                if ($dbStats) {
+                    // Merge database stats with in-memory stats
+                    $this->stats['totalSyncs'] = (int)$dbStats['total_syncs'];
+                    $this->stats['successfulSyncs'] = (int)$dbStats['successful_syncs'];
+                    $this->stats['failedSyncs'] = (int)$dbStats['failed_syncs'];
+                    $this->stats['lastSync'] = $dbStats['last_sync'];
+                    $this->stats['totalInserts'] = (int)$dbStats['total_inserts'];
+                    $this->stats['totalUpdates'] = (int)$dbStats['total_updates'];
+                    $this->stats['totalDeletes'] = (int)$dbStats['total_deletes'];
+                    $this->stats['avgDuration'] = round((float)$dbStats['avg_duration'], 2);
+                }
+            } catch (\Exception $e) {
+                error_log("Warning: Could not load stats from database: " . $e->getMessage());
+            }
+        }
         return $this->stats;
+    }
+    
+    /**
+     * Load overall stats from the database
+     */
+    private function loadStatsFromDB()
+    {
+        if (!$this->statsDB) {
+            return;
+        }
+        
+        try {
+            $dbStats = $this->statsDB->getOverallStats();
+            if ($dbStats) {
+                $this->stats['totalSyncs'] = (int)$dbStats['total_syncs'];
+                $this->stats['successfulSyncs'] = (int)$dbStats['successful_syncs'];
+                $this->stats['failedSyncs'] = (int)$dbStats['failed_syncs'];
+                $this->stats['lastSync'] = $dbStats['last_sync'];
+            }
+        } catch (\Exception $e) {
+            error_log("Warning: Could not load stats from database: " . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Get the stats database instance
+     */
+    public function getStatsDB()
+    {
+        return $this->statsDB;
     }
 
     /**

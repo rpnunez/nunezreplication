@@ -56,6 +56,118 @@ class ApiController
     {
         return $this->engine->sync();
     }
+    
+    public function getStatsHistory()
+    {
+        // Authenticate API request - stats may contain operational data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+        
+        $statsDB = $this->engine->getStatsDB();
+        
+        if (!$statsDB) {
+            return [
+                'error' => 'Stats database not configured',
+                'history' => []
+            ];
+        }
+        
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
+        $limit = max(1, min($limit, 100)); // Between 1 and 100
+        
+        try {
+            $history = $statsDB->getRecentSyncs($limit);
+            return [
+                'history' => $history,
+                'count' => count($history)
+            ];
+        } catch (\Exception $e) {
+            return [
+                'error' => 'Failed to retrieve history: ' . $e->getMessage(),
+                'history' => []
+            ];
+        }
+    }
+    
+    public function getTableStats()
+    {
+        // Authenticate API request - stats may contain operational data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+        
+        $statsDB = $this->engine->getStatsDB();
+        
+        if (!$statsDB) {
+            return [
+                'error' => 'Stats database not configured',
+                'stats' => []
+            ];
+        }
+        
+        $tableName = $_GET['table'] ?? null;
+        
+        if (!$tableName) {
+            return [
+                'error' => 'Table name parameter required',
+                'stats' => []
+            ];
+        }
+        
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
+        $limit = max(1, min($limit, 100));
+        
+        try {
+            $stats = $statsDB->getTableStats($tableName, $limit);
+            return [
+                'table' => $tableName,
+                'stats' => $stats,
+                'count' => count($stats)
+            ];
+        } catch (\Exception $e) {
+            return [
+                'error' => 'Failed to retrieve table stats: ' . $e->getMessage(),
+                'stats' => []
+            ];
+        }
+    }
+    
+    public function getRecentErrors()
+    {
+        // Authenticate API request - stats may contain operational data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+        
+        $statsDB = $this->engine->getStatsDB();
+        
+        if (!$statsDB) {
+            return [
+                'error' => 'Stats database not configured',
+                'errors' => []
+            ];
+        }
+        
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 20;
+        $limit = max(1, min($limit, 100));
+        
+        try {
+            $errors = $statsDB->getRecentErrors($limit);
+            return [
+                'errors' => $errors,
+                'count' => count($errors)
+            ];
+        } catch (\Exception $e) {
+            return [
+                'error' => 'Failed to retrieve errors: ' . $e->getMessage(),
+                'errors' => []
+            ];
+        }
+    }
 
     public function pushData()
     {

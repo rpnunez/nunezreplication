@@ -41,7 +41,12 @@ $router->get('/api/config', [$apiController, 'getConfig']);
 $router->post('/api/sync', [$apiController, 'triggerSync']);
 $router->post('/api/push', [$apiController, 'pushData']);
 $router->get('/api/pull', [$apiController, 'pullData']);
+
 $router->get('/api/metadata', [$apiController, 'getMetadata']);
+
+$router->get('/api/stats/history', [$apiController, 'getStatsHistory']);
+$router->get('/api/stats/table', [$apiController, 'getTableStats']);
+$router->get('/api/stats/errors', [$apiController, 'getRecentErrors']);
 
 // Handle API requests
 $requestUri = $_SERVER['REQUEST_URI'];
