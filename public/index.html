@@ -59,6 +59,16 @@
                 </div>
             </div>
 
+            <div class="card" id="configEditorCard">
+                <h2>Config Editor</h2>
+                <div id="configEditorContent">
+                    <button id="createConfigButton" class="btn btn-primary">Create New Config</button>
+                    <div id="configsList">
+                        <p>Loading configurations...</p>
+                    </div>
+                </div>
+            </div>
+
             <div class="card actions">
                 <h2>Actions</h2>
                 <button id="syncButton" class="btn btn-primary">Trigger Manual Sync</button>
@@ -71,6 +81,69 @@
             <p>Auto-refresh enabled (every 5 seconds)</p>
         </footer>
     </div>
+
+    <!-- Config Editor Modal -->
+    <div id="configEditorModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Config Editor</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="editor-layout">
+                    <div class="editor-panel">
+                        <div class="editor-toolbar">
+                            <input type="text" id="configFilename" placeholder="config.json" />
+                            <button id="saveConfigButton" class="btn btn-primary">Save</button>
+                            <button id="cancelConfigButton" class="btn btn-secondary">Cancel</button>
+                        </div>
+                        <textarea id="configEditor" spellcheck="false"></textarea>
+                        <div id="editorStatus" class="editor-status"></div>
+                    </div>
+                    <div class="help-panel">
+                        <h3>Configuration Help</h3>
+                        <div id="configHelp" class="help-content"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Config Modal -->
+    <div id="createConfigModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Create New Configuration</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Select a configuration template:</p>
+                <div id="templatesList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filename Prompt Modal -->
+    <div id="filenamePromptModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Enter Filename</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Enter a filename for the new configuration:</p>
+                <input type="text" id="newFilenameInput" class="filename-input" placeholder="config.my-config.json" />
+                <div id="filenameError" class="editor-status"></div>
+                <div class="modal-actions">
+                    <button id="confirmFilenameButton" class="btn btn-primary">Create</button>
+                    <button id="cancelFilenameButton" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="notificationToast" class="toast"></div>
 
     <script src="/js/app.js"></script>
 </body>

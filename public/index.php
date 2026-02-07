@@ -48,6 +48,15 @@ $router->get('/api/stats/history', [$apiController, 'getStatsHistory']);
 $router->get('/api/stats/table', [$apiController, 'getTableStats']);
 $router->get('/api/stats/errors', [$apiController, 'getRecentErrors']);
 
+// Config management routes
+$router->get('/api/configs', [$apiController, 'listConfigs']);
+$router->get('/api/configs/file', [$apiController, 'getConfigFile']);
+$router->post('/api/configs/save', [$apiController, 'saveConfigFile']);
+$router->get('/api/configs/templates', [$apiController, 'getConfigTemplates']);
+$router->get('/api/configs/schema', [$apiController, 'getConfigSchema']);
+$router->post('/api/configs/create', [$apiController, 'createConfigFromTemplate']);
+$router->post('/api/configs/delete', [$apiController, 'deleteConfigFile']);
+
 // Handle API requests
 $requestUri = $_SERVER['REQUEST_URI'];
 if (strpos($requestUri, '/api/') === 0) {
