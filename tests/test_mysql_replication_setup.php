@@ -12,7 +12,7 @@ echo "========================================\n";
 echo "Testing MySQL Replication Setup Utility\n";
 echo "========================================\n\n";
 
-$testDir = '/tmp/mysql_replication_test_' . time();
+$testDir = sys_get_temp_dir() . '/mysql_replication_test_' . time();
 
 try {
     // Test 1: Default configuration
@@ -127,7 +127,18 @@ try {
     
     // Cleanup
     echo "Cleaning up test files...\n";
-    exec("rm -rf " . escapeshellarg($testDir));
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($testDir, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $file) {
+        if ($file->isDir()) {
+            rmdir($file->getRealPath());
+        } else {
+            unlink($file->getRealPath());
+        }
+    }
+    rmdir($testDir);
     
     echo "\n========================================\n";
     echo "All tests PASSED! ✓\n";

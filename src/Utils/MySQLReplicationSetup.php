@@ -82,7 +82,7 @@ class MySQLReplicationSetup
      */
     private function generateMasterConfig()
     {
-        $serverId = rand(1, 100);
+        $serverId = random_int(1, 100);
         
         $config = <<<EOT
 # MySQL Master Configuration
@@ -152,7 +152,7 @@ EOT;
      */
     private function generateSlaveConfig()
     {
-        $serverId = rand(101, 200);
+        $serverId = random_int(101, 200);
         
         $config = <<<EOT
 # MySQL Slave Configuration
@@ -859,8 +859,14 @@ For optimal WordPress performance with replication:
 
 Even with replication, maintain regular backups:
 ```bash
+# Create MySQL credentials file first (secure permissions)
+# echo "[client]" > /root/.mysql_backup.cnf
+# echo "user=root" >> /root/.mysql_backup.cnf
+# echo "password=your_password" >> /root/.mysql_backup.cnf
+# chmod 600 /root/.mysql_backup.cnf
+
 # Daily backup script (add to cron)
-0 3 * * * mysqldump -u root -p{$this->replicationPassword} {$this->masterDB} | gzip > /backup/{$this->masterDB}_\$(date +\%Y\%m\%d).sql.gz
+0 3 * * * mysqldump --defaults-extra-file=/root/.mysql_backup.cnf {$this->masterDB} | gzip > /backup/{$this->masterDB}_\$(date +\%Y\%m\%d).sql.gz
 ```
 
 ## Support and Troubleshooting

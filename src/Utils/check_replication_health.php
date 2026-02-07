@@ -53,7 +53,8 @@ try {
             echo "✓ Slave is configured\n";
             echo "  - Slave IO Running: {$slaveStatus['Slave_IO_Running']}\n";
             echo "  - Slave SQL Running: {$slaveStatus['Slave_SQL_Running']}\n";
-            echo "  - Seconds Behind Master: {$slaveStatus['Seconds_Behind_Master']}\n";
+            $lag = $slaveStatus['Seconds_Behind_Master'] ?? 'Unknown';
+            echo "  - Seconds Behind Master: {$lag}\n";
             
             if ($slaveStatus['Slave_IO_Running'] !== 'Yes' || $slaveStatus['Slave_SQL_Running'] !== 'Yes') {
                 echo "❌ CRITICAL: Slave replication is not running!\n";
@@ -63,7 +64,7 @@ try {
                 exit(1);
             }
             
-            if ($slaveStatus['Seconds_Behind_Master'] > 300) {
+            if (isset($slaveStatus['Seconds_Behind_Master']) && $slaveStatus['Seconds_Behind_Master'] !== null && $slaveStatus['Seconds_Behind_Master'] > 300) {
                 echo "⚠️  WARNING: Slave is lagging by {$slaveStatus['Seconds_Behind_Master']} seconds\n";
             }
         } else {
