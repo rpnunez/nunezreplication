@@ -416,6 +416,9 @@ async function init() {
     // Initialize config editor
     await initConfigEditor();
     
+    // Initialize data management
+    await initDataManagement();
+    
     // Set up auto-refresh (only refresh status and history)
     refreshTimer = setInterval(() => {
         fetchStatus();
@@ -857,4 +860,388 @@ async function initConfigEditor() {
             confirmFilename();
         }
     });
+}
+
+// Data Management Functions
+
+async function openGenerateDataModal() {
+    const modal = document.getElementById('generateDataModal');
+    const databaseSelect = document.getElementById('generateDatabaseSelect');
+    const tablesContainer = document.getElementById('generateTablesContainer');
+    const confirmButton = document.getElementById('generateDataConfirmButton');
+    const statusDiv = document.getElementById('generateStatus');
+    
+    // Reset
+    tablesContainer.style.display = 'none';
+    confirmButton.disabled = true;
+    statusDiv.textContent = '';
+    statusDiv.className = 'editor-status';
+    
+    // Load databases
+    try {
+        const response = await fetch('/api/data/databases');
+        const data = await response.json();
+        
+        if (data.success) {
+            databaseSelect.innerHTML = '<option value="">-- Select a database --</option>';
+            data.databases.forEach(db => {
+                const option = document.createElement('option');
+                option.value = db.name;
+                option.textContent = `${db.name} (${db.database})`;
+                databaseSelect.appendChild(option);
+            });
+        } else {
+            databaseSelect.innerHTML = '<option value="">Failed to load databases</option>';
+        }
+    } catch (error) {
+        console.error('Error loading databases:', error);
+        databaseSelect.innerHTML = '<option value="">Error loading databases</option>';
+    }
+    
+    modal.classList.add('active');
+}
+
+async function onGenerateDatabaseChange() {
+    const databaseSelect = document.getElementById('generateDatabaseSelect');
+    const tablesContainer = document.getElementById('generateTablesContainer');
+    const tablesList = document.getElementById('generateTablesList');
+    const confirmButton = document.getElementById('generateDataConfirmButton');
+    const statusDiv = document.getElementById('generateStatus');
+    
+    const selectedDb = databaseSelect.value;
+    
+    if (!selectedDb) {
+        tablesContainer.style.display = 'none';
+        confirmButton.disabled = true;
+        return;
+    }
+    
+    statusDiv.textContent = 'Loading tables...';
+    statusDiv.className = 'editor-status';
+    
+    try {
+        const response = await fetch(`/api/data/tables?database=${encodeURIComponent(selectedDb)}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            tablesList.innerHTML = '';
+            
+            data.tables.forEach(table => {
+                const row = document.createElement('div');
+                row.className = 'table-input-row';
+                
+                const label = document.createElement('span');
+                label.className = 'table-input-label';
+                label.textContent = table;
+                
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'table-input-field';
+                input.min = '0';
+                input.value = '0';
+                input.placeholder = 'Rows';
+                input.dataset.table = table;
+                
+                row.appendChild(label);
+                row.appendChild(input);
+                tablesList.appendChild(row);
+            });
+            
+            tablesContainer.style.display = 'block';
+            confirmButton.disabled = false;
+            statusDiv.textContent = '';
+        } else {
+            statusDiv.textContent = data.error || 'Failed to load tables';
+            statusDiv.className = 'editor-status error';
+        }
+    } catch (error) {
+        console.error('Error loading tables:', error);
+        statusDiv.textContent = 'Error loading tables';
+        statusDiv.className = 'editor-status error';
+    }
+}
+
+async function confirmGenerateData() {
+    const databaseSelect = document.getElementById('generateDatabaseSelect');
+    const tablesList = document.getElementById('generateTablesList');
+    const confirmButton = document.getElementById('generateDataConfirmButton');
+    const statusDiv = document.getElementById('generateStatus');
+    
+    const selectedDb = databaseSelect.value;
+    
+    if (!selectedDb) {
+        statusDiv.textContent = 'Please select a database';
+        statusDiv.className = 'editor-status error';
+        return;
+    }
+    
+    // Collect table row counts
+    const tables = {};
+    const inputs = tablesList.querySelectorAll('.table-input-field');
+    
+    inputs.forEach(input => {
+        const count = parseInt(input.value) || 0;
+        if (count > 0) {
+            tables[input.dataset.table] = count;
+        }
+    });
+    
+    if (Object.keys(tables).length === 0) {
+        statusDiv.textContent = 'Please specify at least one table with row count > 0';
+        statusDiv.className = 'editor-status error';
+        return;
+    }
+    
+    confirmButton.disabled = true;
+    statusDiv.textContent = 'Generating data...';
+    statusDiv.className = 'editor-status';
+    
+    try {
+        const response = await fetch('/api/data/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                database: selectedDb,
+                tables: tables
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            statusDiv.textContent = 'Data generated successfully!';
+            statusDiv.className = 'editor-status success';
+            
+            showNotification('Data generated successfully!', 'success');
+            
+            setTimeout(() => {
+                closeGenerateDataModal();
+            }, 2000);
+        } else {
+            statusDiv.textContent = data.error || 'Failed to generate data';
+            statusDiv.className = 'editor-status error';
+            confirmButton.disabled = false;
+        }
+    } catch (error) {
+        console.error('Error generating data:', error);
+        statusDiv.textContent = 'Error generating data';
+        statusDiv.className = 'editor-status error';
+        confirmButton.disabled = false;
+    }
+}
+
+function closeGenerateDataModal() {
+    document.getElementById('generateDataModal').classList.remove('active');
+}
+
+async function openIntroduceUpdatesModal() {
+    const modal = document.getElementById('introduceUpdatesModal');
+    const databaseSelect = document.getElementById('updateDatabaseSelect');
+    const tablesContainer = document.getElementById('updateTablesContainer');
+    const confirmButton = document.getElementById('updateDataConfirmButton');
+    const statusDiv = document.getElementById('updateStatus');
+    
+    // Reset
+    tablesContainer.style.display = 'none';
+    confirmButton.disabled = true;
+    statusDiv.textContent = '';
+    statusDiv.className = 'editor-status';
+    
+    // Load databases
+    try {
+        const response = await fetch('/api/data/databases');
+        const data = await response.json();
+        
+        if (data.success) {
+            databaseSelect.innerHTML = '<option value="">-- Select a database --</option>';
+            data.databases.forEach(db => {
+                const option = document.createElement('option');
+                option.value = db.name;
+                option.textContent = `${db.name} (${db.database})`;
+                databaseSelect.appendChild(option);
+            });
+        } else {
+            databaseSelect.innerHTML = '<option value="">Failed to load databases</option>';
+        }
+    } catch (error) {
+        console.error('Error loading databases:', error);
+        databaseSelect.innerHTML = '<option value="">Error loading databases</option>';
+    }
+    
+    modal.classList.add('active');
+}
+
+async function onUpdateDatabaseChange() {
+    const databaseSelect = document.getElementById('updateDatabaseSelect');
+    const tablesContainer = document.getElementById('updateTablesContainer');
+    const tablesList = document.getElementById('updateTablesList');
+    const confirmButton = document.getElementById('updateDataConfirmButton');
+    const statusDiv = document.getElementById('updateStatus');
+    
+    const selectedDb = databaseSelect.value;
+    
+    if (!selectedDb) {
+        tablesContainer.style.display = 'none';
+        confirmButton.disabled = true;
+        return;
+    }
+    
+    statusDiv.textContent = 'Loading tables...';
+    statusDiv.className = 'editor-status';
+    
+    try {
+        const response = await fetch(`/api/data/tables?database=${encodeURIComponent(selectedDb)}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            tablesList.innerHTML = '';
+            
+            data.tables.forEach(table => {
+                const row = document.createElement('div');
+                row.className = 'table-input-row';
+                
+                const label = document.createElement('span');
+                label.className = 'table-input-label';
+                label.textContent = table;
+                
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'table-input-field';
+                input.min = '0';
+                input.value = '0';
+                input.placeholder = 'Rows';
+                input.dataset.table = table;
+                
+                row.appendChild(label);
+                row.appendChild(input);
+                tablesList.appendChild(row);
+            });
+            
+            tablesContainer.style.display = 'block';
+            confirmButton.disabled = false;
+            statusDiv.textContent = '';
+        } else {
+            statusDiv.textContent = data.error || 'Failed to load tables';
+            statusDiv.className = 'editor-status error';
+        }
+    } catch (error) {
+        console.error('Error loading tables:', error);
+        statusDiv.textContent = 'Error loading tables';
+        statusDiv.className = 'editor-status error';
+    }
+}
+
+async function confirmIntroduceUpdates() {
+    const databaseSelect = document.getElementById('updateDatabaseSelect');
+    const tablesList = document.getElementById('updateTablesList');
+    const confirmButton = document.getElementById('updateDataConfirmButton');
+    const statusDiv = document.getElementById('updateStatus');
+    
+    const selectedDb = databaseSelect.value;
+    
+    if (!selectedDb) {
+        statusDiv.textContent = 'Please select a database';
+        statusDiv.className = 'editor-status error';
+        return;
+    }
+    
+    // Collect table update counts
+    const tables = {};
+    const inputs = tablesList.querySelectorAll('.table-input-field');
+    
+    inputs.forEach(input => {
+        const count = parseInt(input.value) || 0;
+        if (count > 0) {
+            tables[input.dataset.table] = count;
+        }
+    });
+    
+    if (Object.keys(tables).length === 0) {
+        statusDiv.textContent = 'Please specify at least one table with row count > 0';
+        statusDiv.className = 'editor-status error';
+        return;
+    }
+    
+    confirmButton.disabled = true;
+    statusDiv.textContent = 'Updating data...';
+    statusDiv.className = 'editor-status';
+    
+    try {
+        const response = await fetch('/api/data/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                database: selectedDb,
+                tables: tables
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            statusDiv.textContent = 'Data updated successfully!';
+            statusDiv.className = 'editor-status success';
+            
+            showNotification('Data updated successfully!', 'success');
+            
+            setTimeout(() => {
+                closeIntroduceUpdatesModal();
+            }, 2000);
+        } else {
+            statusDiv.textContent = data.error || 'Failed to update data';
+            statusDiv.className = 'editor-status error';
+            confirmButton.disabled = false;
+        }
+    } catch (error) {
+        console.error('Error updating data:', error);
+        statusDiv.textContent = 'Error updating data';
+        statusDiv.className = 'editor-status error';
+        confirmButton.disabled = false;
+    }
+}
+
+function closeIntroduceUpdatesModal() {
+    document.getElementById('introduceUpdatesModal').classList.remove('active');
+}
+
+// Initialize data management when page loads
+async function initDataManagement() {
+    // Set up event listeners with null checks
+    const generateDataBtn = document.getElementById('generateDataButton');
+    const introduceUpdatesBtn = document.getElementById('introduceUpdatesButton');
+    const generateDbSelect = document.getElementById('generateDatabaseSelect');
+    const updateDbSelect = document.getElementById('updateDatabaseSelect');
+    const generateConfirmBtn = document.getElementById('generateDataConfirmButton');
+    const generateCancelBtn = document.getElementById('generateDataCancelButton');
+    const updateConfirmBtn = document.getElementById('updateDataConfirmButton');
+    const updateCancelBtn = document.getElementById('updateDataCancelButton');
+    
+    if (generateDataBtn) {
+        generateDataBtn.addEventListener('click', openGenerateDataModal);
+    }
+    if (introduceUpdatesBtn) {
+        introduceUpdatesBtn.addEventListener('click', openIntroduceUpdatesModal);
+    }
+    if (generateDbSelect) {
+        generateDbSelect.addEventListener('change', onGenerateDatabaseChange);
+    }
+    if (updateDbSelect) {
+        updateDbSelect.addEventListener('change', onUpdateDatabaseChange);
+    }
+    if (generateConfirmBtn) {
+        generateConfirmBtn.addEventListener('click', confirmGenerateData);
+    }
+    if (generateCancelBtn) {
+        generateCancelBtn.addEventListener('click', closeGenerateDataModal);
+    }
+    if (updateConfirmBtn) {
+        updateConfirmBtn.addEventListener('click', confirmIntroduceUpdates);
+    }
+    if (updateCancelBtn) {
+        updateCancelBtn.addEventListener('click', closeIntroduceUpdatesModal);
+    }
 }

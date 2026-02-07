@@ -69,6 +69,17 @@
                 </div>
             </div>
 
+            <div class="card" id="dataManagementCard">
+                <h2>Data Management</h2>
+                <div id="dataManagementContent">
+                    <p class="data-management-description">Generate test data or introduce updates to help test the replication engine.</p>
+                    <div class="data-management-actions">
+                        <button id="generateDataButton" class="btn btn-primary">Generate Data</button>
+                        <button id="introduceUpdatesButton" class="btn btn-primary">Introduce Updates</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="card actions">
                 <h2>Actions</h2>
                 <button id="syncButton" class="btn btn-primary">Trigger Manual Sync</button>
@@ -137,6 +148,68 @@
                 <div class="modal-actions">
                     <button id="confirmFilenameButton" class="btn btn-primary">Create</button>
                     <button id="cancelFilenameButton" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Data Modal -->
+    <div id="generateDataModal" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h2>Generate Data</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="generateDatabaseSelect">Select Database:</label>
+                    <select id="generateDatabaseSelect" class="form-select">
+                        <option value="">Loading databases...</option>
+                    </select>
+                </div>
+                
+                <div id="generateTablesContainer" style="display: none;">
+                    <h3>Tables</h3>
+                    <p class="form-help">Specify how many rows to insert for each table:</p>
+                    <div id="generateTablesList" class="tables-list"></div>
+                </div>
+                
+                <div id="generateStatus" class="editor-status"></div>
+                
+                <div class="modal-actions">
+                    <button id="generateDataConfirmButton" class="btn btn-primary" disabled>Generate</button>
+                    <button id="generateDataCancelButton" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Introduce Updates Modal -->
+    <div id="introduceUpdatesModal" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h2>Introduce Updates</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="updateDatabaseSelect">Select Database:</label>
+                    <select id="updateDatabaseSelect" class="form-select">
+                        <option value="">Loading databases...</option>
+                    </select>
+                </div>
+                
+                <div id="updateTablesContainer" style="display: none;">
+                    <h3>Tables</h3>
+                    <p class="form-help">Specify how many rows to update for each table:</p>
+                    <div id="updateTablesList" class="tables-list"></div>
+                </div>
+                
+                <div id="updateStatus" class="editor-status"></div>
+                
+                <div class="modal-actions">
+                    <button id="updateDataConfirmButton" class="btn btn-primary" disabled>Update</button>
+                    <button id="updateDataCancelButton" class="btn btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
