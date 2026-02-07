@@ -67,7 +67,7 @@ async function fetchPerTableStats() {
         if (tables.length > 0) {
             // For demo, show stats for the first table
             const tableName = tables[0].name;
-            const statsResponse = await fetch(`/api/stats/table?table=${tableName}&limit=5`);
+            const statsResponse = await fetch(`/api/stats/table?table=${encodeURIComponent(tableName)}&limit=5`);
             const statsData = await statsResponse.json();
             
             updatePerTableStats(tableName, statsData.stats || []);
@@ -254,74 +254,135 @@ async function triggerSync() {
 function updateSyncHistory(history) {
     const historyDiv = document.getElementById('syncHistory');
     
+    // Clear existing content
+    historyDiv.innerHTML = '';
+    
     if (!history || history.length === 0) {
-        historyDiv.innerHTML = '<p class="loading">No sync history available</p>';
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = 'No sync history available';
+        historyDiv.appendChild(p);
         return;
     }
     
-    historyDiv.innerHTML = history.map(sync => {
+    history.forEach(sync => {
         const statusClass = sync.status === 'success' ? 'badge-success' : 
-                           sync.status === 'failed' ? 'badge-danger' : 'badge-primary';
+                           (sync.status === 'failed' ? 'badge-danger' : 'badge-primary');
         const duration = sync.duration_seconds ? `${sync.duration_seconds}s` : 'N/A';
-        
-        return `
-            <div class="history-item">
-                <div class="history-header">
-                    <span class="badge ${statusClass}">${sync.status}</span>
-                    <span class="history-time">${sync.sync_started_at}</span>
-                </div>
-                <div class="history-details">
-                    <span>Duration: ${duration}</span> | 
-                    <span>Inserts: ${sync.total_inserts}</span> | 
-                    <span>Updates: ${sync.total_updates}</span> | 
-                    <span>Deletes: ${sync.total_deletes}</span>
-                </div>
-                ${sync.error_message ? `<div class="history-error">${sync.error_message}</div>` : ''}
-            </div>
-        `;
-    }).join('');
+
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'history-item';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'history-header';
+
+        const statusSpan = document.createElement('span');
+        statusSpan.className = `badge ${statusClass}`;
+        statusSpan.textContent = sync.status;
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'history-time';
+        timeSpan.textContent = sync.sync_started_at;
+
+        headerDiv.appendChild(statusSpan);
+        headerDiv.appendChild(timeSpan);
+
+        const detailsDiv = document.createElement('div');
+        detailsDiv.className = 'history-details';
+        detailsDiv.textContent = `Duration: ${duration} | Inserts: ${sync.total_inserts} | Updates: ${sync.total_updates} | Deletes: ${sync.total_deletes}`;
+
+        itemDiv.appendChild(headerDiv);
+        itemDiv.appendChild(detailsDiv);
+
+        if (sync.error_message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'history-error';
+            // Use textContent to avoid interpreting error_message as HTML
+            errorDiv.textContent = sync.error_message;
+            itemDiv.appendChild(errorDiv);
+        }
+
+        historyDiv.appendChild(itemDiv);
+    });
 }
 
 // Update per-table statistics display
 function updatePerTableStats(tableName, stats) {
     const statsDiv = document.getElementById('perTableStats');
     
+    // Clear existing content
+    statsDiv.innerHTML = '';
+    
     if (!stats || stats.length === 0) {
-        statsDiv.innerHTML = `<p class="loading">No statistics available for ${tableName}</p>`;
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = `No statistics available for ${tableName}`;
+        statsDiv.appendChild(p);
         return;
     }
     
-    statsDiv.innerHTML = `
-        <div class="table-stats-header">Stats for table: <strong>${tableName}</strong></div>
-        ${stats.map(stat => `
-            <div class="table-stat-item">
-                <div class="stat-time">${stat.sync_timestamp}</div>
-                <div class="stat-details">
-                    Rows: ${stat.rows_processed} | 
-                    Inserts: ${stat.inserts} | 
-                    Updates: ${stat.updates} | 
-                    Deletes: ${stat.deletes}
-                </div>
-            </div>
-        `).join('')}
-    `;
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'table-stats-header';
+    headerDiv.appendChild(document.createTextNode('Stats for table: '));
+    
+    const tableNameStrong = document.createElement('strong');
+    tableNameStrong.textContent = tableName;
+    headerDiv.appendChild(tableNameStrong);
+    
+    statsDiv.appendChild(headerDiv);
+    
+    stats.forEach(stat => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'table-stat-item';
+
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'stat-time';
+        timeDiv.textContent = stat.sync_timestamp;
+
+        const detailsDiv = document.createElement('div');
+        detailsDiv.className = 'stat-details';
+        detailsDiv.textContent = `Rows: ${stat.rows_processed} | Inserts: ${stat.inserts} | Updates: ${stat.updates} | Deletes: ${stat.deletes}`;
+
+        itemDiv.appendChild(timeDiv);
+        itemDiv.appendChild(detailsDiv);
+
+        statsDiv.appendChild(itemDiv);
+    });
 }
 
 // Update recent errors display
 function updateRecentErrors(errors) {
     const errorsDiv = document.getElementById('recentErrors');
     
+    // Clear existing content
+    errorsDiv.innerHTML = '';
+    
     if (!errors || errors.length === 0) {
-        errorsDiv.innerHTML = '<p class="loading">No recent errors</p>';
+        const p = document.createElement('p');
+        p.className = 'loading';
+        p.textContent = 'No recent errors';
+        errorsDiv.appendChild(p);
         return;
     }
     
-    errorsDiv.innerHTML = errors.map(error => `
-        <div class="error-item">
-            <div class="error-time">${error.log_timestamp}</div>
-            <div class="error-message">${error.message}</div>
-        </div>
-    `).join('');
+    errors.forEach(error => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'error-item';
+
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'error-time';
+        timeDiv.textContent = error.log_timestamp;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'error-message';
+        // Use textContent to avoid interpreting message as HTML
+        messageDiv.textContent = error.message;
+
+        itemDiv.appendChild(timeDiv);
+        itemDiv.appendChild(messageDiv);
+
+        errorsDiv.appendChild(itemDiv);
+    });
 }
 
 // Update last update timestamp

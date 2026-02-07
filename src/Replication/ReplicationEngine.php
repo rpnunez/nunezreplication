@@ -57,6 +57,9 @@ class ReplicationEngine
         $this->stats['inserts'] = 0;
         $this->stats['deletes'] = 0;
         
+        // Reset currentSyncId to prevent using stale ID if startSync() throws
+        $this->currentSyncId = null;
+        
         // Start sync in stats DB
         if ($this->statsDB) {
             try {

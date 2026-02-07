@@ -27,12 +27,19 @@ $methods = [
 ];
 
 echo "\nChecking methods:\n";
+$missingMethods = false;
 foreach ($methods as $method) {
     if ($reflection->hasMethod($method)) {
         echo "✓ Method '$method' exists\n";
     } else {
         echo "✗ Method '$method' missing\n";
+        $missingMethods = true;
     }
+}
+
+if ($missingMethods) {
+    echo "\n✗ Some required methods are missing. See details above.\n";
+    exit(1);
 }
 
 echo "\n✓ All basic checks passed!\n";

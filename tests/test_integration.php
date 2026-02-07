@@ -13,6 +13,7 @@ $allPassed = true;
 
 // Test 1: ReplicationEngine without stats DB
 echo "Test 1: ReplicationEngine without stats DB\n";
+$engine = null;
 try {
     $config = [
         'mode' => 'master-slave',
@@ -28,15 +29,19 @@ try {
     
     echo "  ✓ Engine created without stats DB\n";
     echo "  ✓ Stats DB is null: " . ($engine->getStatsDB() === null ? 'Yes' : 'No') . "\n";
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     echo "  ✗ Error: " . $e->getMessage() . "\n";
     $allPassed = false;
 }
 
 // Test 2: ApiController basic functionality
 echo "\nTest 2: ApiController integration\n";
-try {
-    $apiController = new ApiController($engine, $config);
+if ($engine === null) {
+    echo "  ✗ Skipping: Engine not initialized from Test 1\n";
+    $allPassed = false;
+} else {
+    try {
+        $apiController = new ApiController($engine, $config);
     
     // Test getStatus
     $status = $apiController->getStatus();
@@ -62,15 +67,20 @@ try {
         echo "    - Expected error: " . $errors['error'] . "\n";
     }
     
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     echo "  ✗ Error: " . $e->getMessage() . "\n";
     $allPassed = false;
+}
 }
 
 // Test 3: Check all class methods exist
 echo "\nTest 3: Verify all required methods\n";
-try {
-    $engineReflection = new ReflectionClass(get_class($engine));
+if ($engine === null) {
+    echo "  ✗ Skipping: Engine not initialized\n";
+    $allPassed = false;
+} else {
+    try {
+        $engineReflection = new ReflectionClass(get_class($engine));
     $requiredMethods = ['sync', 'getStats', 'getStatsDB'];
     
     foreach ($requiredMethods as $method) {
@@ -94,15 +104,20 @@ try {
         }
     }
     
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     echo "  ✗ Error: " . $e->getMessage() . "\n";
     $allPassed = false;
+}
 }
 
 // Test 4: Stats structure
 echo "\nTest 4: Stats structure validation\n";
-try {
-    $stats = $engine->getStats();
+if ($engine === null) {
+    echo "  ✗ Skipping: Engine not initialized\n";
+    $allPassed = false;
+} else {
+    try {
+        $stats = $engine->getStats();
     $requiredKeys = ['lastSync', 'totalSyncs', 'successfulSyncs', 'failedSyncs', 'lastError', 'tablesProcessed', 'updates', 'inserts', 'deletes'];
     
     foreach ($requiredKeys as $key) {
@@ -114,9 +129,10 @@ try {
         }
     }
     
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     echo "  ✗ Error: " . $e->getMessage() . "\n";
     $allPassed = false;
+}
 }
 
 // Summary

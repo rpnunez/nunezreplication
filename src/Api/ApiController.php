@@ -59,6 +59,12 @@ class ApiController
     
     public function getStatsHistory()
     {
+        // Authenticate API request - stats may contain operational data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+        
         $statsDB = $this->engine->getStatsDB();
         
         if (!$statsDB) {
@@ -87,12 +93,18 @@ class ApiController
     
     public function getTableStats()
     {
+        // Authenticate API request - stats may contain operational data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+        
         $statsDB = $this->engine->getStatsDB();
         
         if (!$statsDB) {
             return [
                 'error' => 'Stats database not configured',
-                'tables' => []
+                'stats' => []
             ];
         }
         
@@ -101,7 +113,7 @@ class ApiController
         if (!$tableName) {
             return [
                 'error' => 'Table name parameter required',
-                'tables' => []
+                'stats' => []
             ];
         }
         
@@ -125,6 +137,12 @@ class ApiController
     
     public function getRecentErrors()
     {
+        // Authenticate API request - stats may contain operational data
+        if (!$this->authenticateRequest()) {
+            http_response_code(401);
+            return ['error' => 'Unauthorized'];
+        }
+        
         $statsDB = $this->engine->getStatsDB();
         
         if (!$statsDB) {
