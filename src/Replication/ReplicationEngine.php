@@ -87,31 +87,35 @@ class ReplicationEngine
 
             error_log("Syncing table: $tableName");
 
-            // Get all columns from master table
-            $columns = $this->getTableColumns('master', $tableName);
-            $columns = array_diff($columns, $ignoreColumns);
+            // Start transaction on slave for atomic operations
+            $this->dbManager->beginTransaction('slave');
             
-            // Validate column names
-            foreach ($columns as $col) {
-                $this->validateIdentifier($col);
-            }
+            try {
+                // Get all columns from master table
+                $columns = $this->getTableColumns('master', $tableName);
+                $columns = array_diff($columns, $ignoreColumns);
+                
+                // Validate column names
+                foreach ($columns as $col) {
+                    $this->validateIdentifier($col);
+                }
 
-            // Check if timestamp column exists
-            $hasTimestamp = in_array($timestampColumn, $columns);
+                // Check if timestamp column exists
+                $hasTimestamp = in_array($timestampColumn, $columns);
 
-            // Get all rows from master
-            $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
+                // Get all rows from master
+                $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
 
-            // Track primary keys we've seen in master (for deletion detection)
-            $masterPrimaryKeys = [];
-            
-            // Track per-table stats
-            $tableInserts = 0;
-            $tableUpdates = 0;
-            $tableDeletes = 0;
-            
-            $synced = 0;
-            foreach ($masterRows as $row) {
+                // Track primary keys we've seen in master (for deletion detection)
+                $masterPrimaryKeys = [];
+                
+                // Track per-table stats
+                $tableInserts = 0;
+                $tableUpdates = 0;
+                $tableDeletes = 0;
+                
+                $synced = 0;
+                foreach ($masterRows as $row) {
                 $masterPrimaryKeys[] = $row[$primaryKey];
                 
                 // Check if row exists in slave
@@ -158,6 +162,9 @@ class ReplicationEngine
             $this->handleDeletions('slave', $tableName, $primaryKey, $masterPrimaryKeys);
             $tableDeletes = $this->stats['deletes'] - $deletedBefore;
 
+            // Commit transaction on slave
+            $this->dbManager->commit('slave');
+
             $this->stats['tablesProcessed'][$tableName] = [
                 'rows' => $synced,
                 'inserts' => $tableInserts,
@@ -167,6 +174,12 @@ class ReplicationEngine
             ];
 
             error_log("Synced $synced rows for table: $tableName (Table stats - Inserts: $tableInserts, Updates: $tableUpdates, Deletes: $tableDeletes)");
+            } catch (\Exception $e) {
+                // Rollback transaction on error
+                $this->dbManager->rollback('slave');
+                error_log("Error syncing table $tableName, transaction rolled back: " . $e->getMessage());
+                throw $e;
+            }
         }
     }
 
@@ -184,22 +197,27 @@ class ReplicationEngine
 
             error_log("Bidirectional sync for table: $tableName");
 
-            // Get all columns
-            $columns = $this->getTableColumns('master', $tableName);
-            $columns = array_diff($columns, $ignoreColumns);
+            // Start transactions on both databases for atomic operations
+            $this->dbManager->beginTransaction('master');
+            $this->dbManager->beginTransaction('slave');
             
-            // Validate column names
-            foreach ($columns as $col) {
-                $this->validateIdentifier($col);
-            }
+            try {
+                // Get all columns
+                $columns = $this->getTableColumns('master', $tableName);
+                $columns = array_diff($columns, $ignoreColumns);
+                
+                // Validate column names
+                foreach ($columns as $col) {
+                    $this->validateIdentifier($col);
+                }
 
-            // Check if timestamp column exists
-            $hasTimestamp = in_array($timestampColumn, $columns);
+                // Check if timestamp column exists
+                $hasTimestamp = in_array($timestampColumn, $columns);
 
-            // Track per-table stats
-            $tableInserts = 0;
-            $tableUpdates = 0;
-            $tableDeletes = 0;
+                // Track per-table stats
+                $tableInserts = 0;
+                $tableUpdates = 0;
+                $tableDeletes = 0;
 
             // Sync master -> slave
             $masterRows = $this->dbManager->query('master', "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`");
@@ -300,6 +318,10 @@ class ReplicationEngine
             
             $tableDeletes = $this->stats['deletes'] - $deletedBefore;
 
+            // Commit both transactions
+            $this->dbManager->commit('master');
+            $this->dbManager->commit('slave');
+
             $this->stats['tablesProcessed'][$tableName] = [
                 'rows' => $synced,
                 'inserts' => $tableInserts,
@@ -309,6 +331,13 @@ class ReplicationEngine
             ];
 
             error_log("Bidirectional sync completed: $synced operations for table: $tableName (Table stats - Inserts: $tableInserts, Updates: $tableUpdates, Deletes: $tableDeletes)");
+            } catch (\Exception $e) {
+                // Rollback both transactions on error
+                $this->dbManager->rollback('master');
+                $this->dbManager->rollback('slave');
+                error_log("Error syncing table $tableName, transactions rolled back: " . $e->getMessage());
+                throw $e;
+            }
         }
     }
 
@@ -415,5 +444,130 @@ class ReplicationEngine
     public function getStats()
     {
         return $this->stats;
+    }
+
+    /**
+     * Push data received from remote environment to local database
+     */
+    public function pushDataToLocal($tableName, $data)
+    {
+        if (!is_array($data) || empty($data)) {
+            throw new \Exception("Invalid data format");
+        }
+
+        // Find table configuration
+        $tableConfig = $this->findTableConfig($tableName);
+        if (!$tableConfig) {
+            throw new \Exception("Table $tableName not configured for replication");
+        }
+
+        $primaryKey = $tableConfig['primaryKey'];
+        $this->validateIdentifier($tableName);
+        $this->validateIdentifier($primaryKey);
+
+        $inserted = 0;
+        $updated = 0;
+
+        // Determine target database - use master for primary writes
+        $targetDb = 'master';
+        
+        // Verify the connection exists
+        try {
+            $this->dbManager->getConnection($targetDb);
+        } catch (\Exception $e) {
+            throw new \Exception("Target database '$targetDb' not connected. Configure 'master' database connection.");
+        }
+
+        // Start transaction
+        $this->dbManager->beginTransaction($targetDb);
+
+        try {
+            foreach ($data as $row) {
+                // Check if row exists
+                $exists = $this->dbManager->query(
+                    $targetDb,
+                    "SELECT `$primaryKey` FROM `$tableName` WHERE `$primaryKey` = ?",
+                    [$row[$primaryKey]]
+                );
+
+                if (empty($exists)) {
+                    $this->insertRow($targetDb, $tableName, $row);
+                    $inserted++;
+                } else {
+                    $this->updateRow($targetDb, $tableName, $row, $primaryKey);
+                    $updated++;
+                }
+                
+                // Record sync metadata for incremental sync tracking
+                $this->metadata->recordSync($targetDb, $tableName, $row[$primaryKey]);
+            }
+
+            $this->dbManager->commit($targetDb);
+
+            return [
+                'inserted' => $inserted,
+                'updated' => $updated,
+                'total' => count($data)
+            ];
+        } catch (\Exception $e) {
+            $this->dbManager->rollback($targetDb);
+            throw $e;
+        }
+    }
+
+    /**
+     * Pull data from local database to send to remote environment
+     */
+    public function pullDataFromLocal($tableName, $since = null)
+    {
+        // Find table configuration
+        $tableConfig = $this->findTableConfig($tableName);
+        if (!$tableConfig) {
+            throw new \Exception("Table $tableName not configured for replication");
+        }
+
+        $this->validateIdentifier($tableName);
+        $ignoreColumns = $tableConfig['ignoreColumns'] ?? [];
+        $timestampColumn = $tableConfig['timestampColumn'] ?? 'updated_at';
+
+        // Get all columns
+        $columns = $this->getTableColumns('master', $tableName);
+        $columns = array_diff($columns, $ignoreColumns);
+
+        // Build query
+        $sql = "SELECT `" . implode('`, `', $columns) . "` FROM `$tableName`";
+        $params = [];
+
+        if ($since && in_array($timestampColumn, $columns)) {
+            $sql .= " WHERE `$timestampColumn` > ?";
+            $params[] = $since;
+        }
+
+        $rows = $this->dbManager->query('master', $sql, $params);
+
+        return $rows;
+    }
+
+    /**
+     * Get metadata for a table
+     */
+    public function getTableMetadata($tableName)
+    {
+        $this->validateIdentifier($tableName);
+        
+        return $this->metadata->getTableMetadata('master', $tableName);
+    }
+
+    /**
+     * Find table configuration by name
+     */
+    private function findTableConfig($tableName)
+    {
+        foreach ($this->config['replication']['tables'] as $tableConfig) {
+            if ($tableConfig['name'] === $tableName) {
+                return $tableConfig;
+            }
+        }
+        return null;
     }
 }

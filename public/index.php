@@ -39,6 +39,9 @@ $apiController = new ApiController($engine, $config);
 $router->get('/api/status', [$apiController, 'getStatus']);
 $router->get('/api/config', [$apiController, 'getConfig']);
 $router->post('/api/sync', [$apiController, 'triggerSync']);
+$router->post('/api/push', [$apiController, 'pushData']);
+$router->get('/api/pull', [$apiController, 'pullData']);
+$router->get('/api/metadata', [$apiController, 'getMetadata']);
 
 // Handle API requests
 $requestUri = $_SERVER['REQUEST_URI'];
