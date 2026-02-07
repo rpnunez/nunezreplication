@@ -152,7 +152,7 @@ The enhanced dashboard now shows:
 6. **Tables Status** - Configured tables
 7. **Actions** - Manual sync trigger
 
-All sections auto-refresh every 5 seconds for real-time monitoring.
+Status, history, and recent errors auto-refresh every 5 seconds for real-time monitoring; per-table statistics and configuration are refreshed on demand.
 
 ## API Enhancements
 

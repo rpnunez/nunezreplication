@@ -215,7 +215,7 @@ CREATE TABLE _replication_metadata (
 
 ## Statistics Database
 
-**New in this version**: Instead of storing metadata in each application database, the system now supports a dedicated statistics database that stores:
+**New in this version**: The system now supports a dedicated statistics database that stores replication history and metrics:
 
 - **Sync History**: Complete record of all sync operations with timestamps, duration, and outcomes
 - **Per-Table Statistics**: Detailed metrics for each table including inserts, updates, deletes
@@ -235,9 +235,9 @@ The stats database is automatically created when configured and includes these t
    - Rows processed, inserts, updates, deletes
    - Links to parent sync operation
 
-3. **replication_metadata** - Centralized metadata tracking
-   - Replaces per-database `_replication_metadata` tables
-   - Tracks sync status and deletion flags by environment
+3. **replication_metadata** - Centralized metadata tracking (statistics DB)
+   - Supplements per-database `_replication_metadata` tables used by the replication engine
+   - Aggregates sync status and deletion flags by environment for reporting and monitoring
 
 4. **operation_log** - Detailed operation logging
    - Info, warning, and error level logs
@@ -442,17 +442,17 @@ Returns recent error logs from the statistics database.
 
 **Query Parameters:**
 - `limit` (optional, default: 20, max: 100) - Number of records to return
-  "success": true,
-  "table": "users",
-  "data": [
+
+**Response:**
+```json
+{
+  "errors": [
     {
-      "id": 1,
-      "name": "John Doe",
-      "email": "john@example.com",
-      "updated_at": "2026-02-07 10:00:00"
+      "log_timestamp": "2026-02-06 22:00:00",
+      "message": "Connection timeout"
     }
   ],
-  "timestamp": "2026-02-07 10:30:00"
+  "count": 1
 }
 ```
 
@@ -470,14 +470,6 @@ X-API-Key: your-api-key-here
 **Response:**
 ```json
 {
-  "errors": [
-    {
-      "log_timestamp": "2026-02-06 22:00:00",
-      "message": "Connection timeout",
-      "context": { "details": "..." }
-    }
-  ],
-  "count": 1
   "success": true,
   "table": "users",
   "metadata": {
