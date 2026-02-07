@@ -862,9 +862,20 @@ jobs:
           }
           EOF
           
-          # This should complete local sync but fail remote sync gracefully
-          php src/sync_multi.php config.test.multi-error.json || true
-          echo "✓ Error handling test completed"
+          # This should complete local sync and report the unreachable remote gracefully.
+          # Run the sync, capturing output so we can assert on the unreachable-remote handling.
+          php src/sync_multi.php config.test.multi-error.json > sync_multi_error_test.log 2>&1
+          
+          echo "=== Sync output (unreachable remote test) ==="
+          cat sync_multi_error_test.log
+          
+          # Verify that the output indicates the remote was unreachable.
+          if ! grep -qi "unreachable" sync_multi_error_test.log; then
+            echo "Expected unreachable-remote indication not found in sync output"
+            exit 1
+          fi
+          
+          echo "✓ Error handling test completed (unreachable remote detected as expected)"
       
       - name: Stop servers
         if: always()
