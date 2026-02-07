@@ -9,3 +9,4 @@ config.*.json
 !config.example.json
 *.backup.*
 composer.lock
+mysql_replication_config/
