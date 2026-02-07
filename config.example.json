@@ -17,6 +17,13 @@
       "user": "root",
       "password": "password",
       "database": "slave_db"
+    },
+    "stats": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "database": "replication_stats"
     }
   },
   "replication": {

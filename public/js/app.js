@@ -31,6 +31,55 @@ async function fetchConfig() {
     }
 }
 
+// Fetch and display sync history
+async function fetchSyncHistory() {
+    try {
+        const response = await fetch('/api/stats/history?limit=10');
+        const data = await response.json();
+        
+        updateSyncHistory(data.history || []);
+    } catch (error) {
+        console.error('Error fetching sync history:', error);
+        showError('syncHistory', 'Failed to fetch sync history');
+    }
+}
+
+// Fetch and display recent errors
+async function fetchRecentErrors() {
+    try {
+        const response = await fetch('/api/stats/errors?limit=10');
+        const data = await response.json();
+        
+        updateRecentErrors(data.errors || []);
+    } catch (error) {
+        console.error('Error fetching errors:', error);
+        showError('recentErrors', 'Failed to fetch error log');
+    }
+}
+
+// Fetch per-table statistics
+async function fetchPerTableStats() {
+    try {
+        const response = await fetch('/api/config');
+        const configData = await response.json();
+        const tables = configData.replication?.tables || [];
+        
+        if (tables.length > 0) {
+            // For demo, show stats for the first table
+            const tableName = tables[0].name;
+            const statsResponse = await fetch(`/api/stats/table?table=${tableName}&limit=5`);
+            const statsData = await statsResponse.json();
+            
+            updatePerTableStats(tableName, statsData.stats || []);
+        } else {
+            showError('perTableStats', 'No tables configured');
+        }
+    } catch (error) {
+        console.error('Error fetching per-table stats:', error);
+        showError('perTableStats', 'Failed to fetch table statistics');
+    }
+}
+
 // Update status indicator
 function updateStatusIndicator(data) {
     const statusDot = document.getElementById('statusDot');
@@ -58,7 +107,7 @@ function updateStats(stats) {
         ? Math.round((stats.successfulSyncs / stats.totalSyncs) * 100) 
         : 0;
     
-    statsInfo.innerHTML = `
+    let html = `
         <div class="info-row">
             <span class="info-label">Last Sync:</span>
             <span class="info-value">${stats.lastSync || 'Never'}</span>
@@ -79,13 +128,45 @@ function updateStats(stats) {
             <span class="info-label">Success Rate:</span>
             <span class="info-value">${successRate}%</span>
         </div>
-        ${stats.lastError ? `
+    `;
+    
+    // Add detailed stats if available
+    if (stats.totalInserts !== undefined) {
+        html += `
+        <div class="info-row">
+            <span class="info-label">Total Inserts:</span>
+            <span class="info-value">${stats.totalInserts}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Total Updates:</span>
+            <span class="info-value">${stats.totalUpdates}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Total Deletes:</span>
+            <span class="info-value">${stats.totalDeletes}</span>
+        </div>
+        `;
+    }
+    
+    if (stats.avgDuration !== undefined) {
+        html += `
+        <div class="info-row">
+            <span class="info-label">Avg Duration:</span>
+            <span class="info-value">${stats.avgDuration}s</span>
+        </div>
+        `;
+    }
+    
+    if (stats.lastError) {
+        html += `
         <div class="info-row">
             <span class="info-label">Last Error:</span>
             <span class="info-value error-message">${stats.lastError}</span>
         </div>
-        ` : ''}
-    `;
+        `;
+    }
+    
+    statsInfo.innerHTML = html;
 }
 
 // Update configuration display
@@ -158,6 +239,8 @@ async function triggerSync() {
         
         // Refresh status after sync
         await fetchStatus();
+        await fetchSyncHistory();
+        await fetchPerTableStats();
     } catch (error) {
         resultDiv.className = 'error';
         resultDiv.textContent = '✗ Error: Failed to trigger sync. Please try again.';
@@ -165,6 +248,80 @@ async function triggerSync() {
         button.disabled = false;
         button.textContent = 'Trigger Manual Sync';
     }
+}
+
+// Update sync history display
+function updateSyncHistory(history) {
+    const historyDiv = document.getElementById('syncHistory');
+    
+    if (!history || history.length === 0) {
+        historyDiv.innerHTML = '<p class="loading">No sync history available</p>';
+        return;
+    }
+    
+    historyDiv.innerHTML = history.map(sync => {
+        const statusClass = sync.status === 'success' ? 'badge-success' : 
+                           sync.status === 'failed' ? 'badge-danger' : 'badge-primary';
+        const duration = sync.duration_seconds ? `${sync.duration_seconds}s` : 'N/A';
+        
+        return `
+            <div class="history-item">
+                <div class="history-header">
+                    <span class="badge ${statusClass}">${sync.status}</span>
+                    <span class="history-time">${sync.sync_started_at}</span>
+                </div>
+                <div class="history-details">
+                    <span>Duration: ${duration}</span> | 
+                    <span>Inserts: ${sync.total_inserts}</span> | 
+                    <span>Updates: ${sync.total_updates}</span> | 
+                    <span>Deletes: ${sync.total_deletes}</span>
+                </div>
+                ${sync.error_message ? `<div class="history-error">${sync.error_message}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// Update per-table statistics display
+function updatePerTableStats(tableName, stats) {
+    const statsDiv = document.getElementById('perTableStats');
+    
+    if (!stats || stats.length === 0) {
+        statsDiv.innerHTML = `<p class="loading">No statistics available for ${tableName}</p>`;
+        return;
+    }
+    
+    statsDiv.innerHTML = `
+        <div class="table-stats-header">Stats for table: <strong>${tableName}</strong></div>
+        ${stats.map(stat => `
+            <div class="table-stat-item">
+                <div class="stat-time">${stat.sync_timestamp}</div>
+                <div class="stat-details">
+                    Rows: ${stat.rows_processed} | 
+                    Inserts: ${stat.inserts} | 
+                    Updates: ${stat.updates} | 
+                    Deletes: ${stat.deletes}
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+// Update recent errors display
+function updateRecentErrors(errors) {
+    const errorsDiv = document.getElementById('recentErrors');
+    
+    if (!errors || errors.length === 0) {
+        errorsDiv.innerHTML = '<p class="loading">No recent errors</p>';
+        return;
+    }
+    
+    errorsDiv.innerHTML = errors.map(error => `
+        <div class="error-item">
+            <div class="error-time">${error.log_timestamp}</div>
+            <div class="error-message">${error.message}</div>
+        </div>
+    `).join('');
 }
 
 // Update last update timestamp
@@ -181,10 +338,20 @@ function showError(elementId, message) {
 
 // Initialize dashboard
 async function init() {
-    await Promise.all([fetchStatus(), fetchConfig()]);
+    await Promise.all([
+        fetchStatus(), 
+        fetchConfig(), 
+        fetchSyncHistory(), 
+        fetchPerTableStats(),
+        fetchRecentErrors()
+    ]);
     
-    // Set up auto-refresh
-    refreshTimer = setInterval(fetchStatus, REFRESH_INTERVAL);
+    // Set up auto-refresh (only refresh status and history)
+    refreshTimer = setInterval(() => {
+        fetchStatus();
+        fetchSyncHistory();
+        fetchRecentErrors();
+    }, REFRESH_INTERVAL);
     
     // Set up sync button
     document.getElementById('syncButton').addEventListener('click', triggerSync);
