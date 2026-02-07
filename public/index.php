@@ -7,6 +7,7 @@ use NunezReplication\Database\DatabaseManager;
 use NunezReplication\Replication\ReplicationEngine;
 use NunezReplication\Api\Router;
 use NunezReplication\Api\ApiController;
+use NunezReplication\Data\DataManagementService;
 
 // Load configuration
 $configLoader = new ConfigLoader();
@@ -32,9 +33,13 @@ if (!$demoMode) {
 // Initialize replication engine
 $engine = new ReplicationEngine($dbManager, $config);
 
+// Initialize data management service
+$dataManagementService = new DataManagementService($dbManager, $config);
+
 // Set up API routes
 $router = new Router();
 $apiController = new ApiController($engine, $config);
+$apiController->setDataManagementService($dataManagementService);
 
 $router->get('/api/status', [$apiController, 'getStatus']);
 $router->get('/api/config', [$apiController, 'getConfig']);
@@ -56,6 +61,12 @@ $router->get('/api/configs/templates', [$apiController, 'getConfigTemplates']);
 $router->get('/api/configs/schema', [$apiController, 'getConfigSchema']);
 $router->post('/api/configs/create', [$apiController, 'createConfigFromTemplate']);
 $router->post('/api/configs/delete', [$apiController, 'deleteConfigFile']);
+
+// Data management routes
+$router->get('/api/data/databases', [$apiController, 'getDataDatabases']);
+$router->get('/api/data/tables', [$apiController, 'getDataTables']);
+$router->post('/api/data/generate', [$apiController, 'generateData']);
+$router->post('/api/data/update', [$apiController, 'introduceUpdates']);
 
 // Handle API requests
 $requestUri = $_SERVER['REQUEST_URI'];

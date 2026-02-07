@@ -642,3 +642,94 @@ footer p {
         opacity: 1;
     }
 }
+
+/* Data Management Styles */
+.data-management-description {
+    margin-bottom: 15px;
+    color: #6b7280;
+}
+
+.data-management-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.modal-medium {
+    max-width: 800px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.form-select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 1em;
+    background: white;
+    cursor: pointer;
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-help {
+    font-size: 0.9em;
+    color: #6b7280;
+    margin-bottom: 10px;
+}
+
+.tables-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 15px;
+    background: #f9fafb;
+}
+
+.table-input-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px;
+    margin: 8px 0;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+}
+
+.table-input-label {
+    font-weight: 500;
+    color: #374151;
+    flex: 1;
+}
+
+.table-input-field {
+    width: 120px;
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.95em;
+    text-align: right;
+}
+
+.table-input-field:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+

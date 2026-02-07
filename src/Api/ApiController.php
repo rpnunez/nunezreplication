@@ -4,18 +4,25 @@ namespace NunezReplication\Api;
 
 use NunezReplication\Replication\ReplicationEngine;
 use NunezReplication\Config\ConfigManager;
+use NunezReplication\Data\DataManagementService;
 
 class ApiController
 {
     private $engine;
     private $config;
     private $configManager;
+    private $dataManagementService;
 
     public function __construct(ReplicationEngine $engine, $config)
     {
         $this->engine = $engine;
         $this->config = $config;
         $this->configManager = new ConfigManager();
+    }
+    
+    public function setDataManagementService(DataManagementService $service)
+    {
+        $this->dataManagementService = $service;
     }
 
     public function getStatus()
@@ -447,5 +454,129 @@ class ApiController
         }
         
         return false;
+    }
+    
+    // Data Management endpoints
+    
+    public function getDataDatabases()
+    {
+        if (!$this->dataManagementService) {
+            http_response_code(500);
+            return ['error' => 'Data management service not available'];
+        }
+        
+        try {
+            $databases = $this->dataManagementService->getAvailableDatabases();
+            return [
+                'success' => true,
+                'databases' => $databases
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    public function getDataTables()
+    {
+        if (!$this->dataManagementService) {
+            http_response_code(500);
+            return ['error' => 'Data management service not available'];
+        }
+        
+        $dbName = $_GET['database'] ?? null;
+        
+        if (!$dbName) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameter: database'];
+        }
+        
+        try {
+            $tables = $this->dataManagementService->getTablesForDatabase($dbName);
+            return [
+                'success' => true,
+                'database' => $dbName,
+                'tables' => $tables
+            ];
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    public function generateData()
+    {
+        if (!$this->dataManagementService) {
+            http_response_code(500);
+            return ['error' => 'Data management service not available'];
+        }
+        
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        if (!isset($input['database']) || !isset($input['tables'])) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameters: database and tables'];
+        }
+        
+        try {
+            $result = $this->dataManagementService->generateData(
+                $input['database'],
+                $input['tables']
+            );
+            
+            if ($result['success']) {
+                return $result;
+            } else {
+                http_response_code(400);
+                return $result;
+            }
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    public function introduceUpdates()
+    {
+        if (!$this->dataManagementService) {
+            http_response_code(500);
+            return ['error' => 'Data management service not available'];
+        }
+        
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        if (!isset($input['database']) || !isset($input['tables'])) {
+            http_response_code(400);
+            return ['error' => 'Missing required parameters: database and tables'];
+        }
+        
+        try {
+            $result = $this->dataManagementService->introduceUpdates(
+                $input['database'],
+                $input['tables']
+            );
+            
+            if ($result['success']) {
+                return $result;
+            } else {
+                http_response_code(400);
+                return $result;
+            }
+        } catch (\Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
     }
 }
