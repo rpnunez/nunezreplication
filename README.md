@@ -10,7 +10,9 @@ A standalone PHP application for replicating data between MySQL databases with s
 - **Delete Tracking**: Handle deletions with metadata tracking to ensure consistency
 - **Configurable Sync**: Define which tables to replicate and which columns to ignore
 - **REST API**: Programmatic access to replication status and manual sync triggers
-- **Real-time Dashboard**: Web UI with live status updates and statistics
+- **Real-time Dashboard**: Web UI with live status updates and comprehensive statistics
+- **Statistics Database**: Dedicated database for storing replication history, metrics, and logs
+- **Historical Analytics**: Track sync history, per-table statistics, and error logs
 - **Automated Syncing**: Periodic synchronization via cron jobs
 - **Error Tracking**: Comprehensive logging and error reporting
 
@@ -64,6 +66,13 @@ The application uses a JSON configuration file. Here's what each setting means:
       "user": "root",
       "password": "password",
       "database": "slave_db"
+    },
+    "stats": {                          // Optional: Statistics database
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "database": "replication_stats"
     }
   },
   "replication": {
@@ -135,6 +144,60 @@ CREATE TABLE _replication_metadata (
 );
 ```
 
+## Statistics Database
+
+**New in this version**: Instead of storing metadata in each application database, the system now supports a dedicated statistics database that stores:
+
+- **Sync History**: Complete record of all sync operations with timestamps, duration, and outcomes
+- **Per-Table Statistics**: Detailed metrics for each table including inserts, updates, deletes
+- **Operation Logs**: Detailed logs for debugging and auditing
+- **Error Tracking**: Comprehensive error logs with context
+
+### Statistics Database Schema
+
+The stats database is automatically created when configured and includes these tables:
+
+1. **sync_history** - Records each sync operation
+   - Status (running/success/failed), duration, timestamps
+   - Aggregate counts of inserts/updates/deletes
+   - Error messages for failed syncs
+
+2. **table_sync_stats** - Per-table metrics for each sync
+   - Rows processed, inserts, updates, deletes
+   - Links to parent sync operation
+
+3. **replication_metadata** - Centralized metadata tracking
+   - Replaces per-database `_replication_metadata` tables
+   - Tracks sync status and deletion flags by environment
+
+4. **operation_log** - Detailed operation logging
+   - Info, warning, and error level logs
+   - JSON context for detailed debugging
+
+### Configuring Statistics Database
+
+Add a `stats` database configuration to your `config.json`:
+
+```json
+{
+  "databases": {
+    "master": { ... },
+    "slave": { ... },
+    "stats": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "replication_user",
+      "password": "secure_password",
+      "database": "replication_stats"
+    }
+  }
+}
+```
+
+The stats database can be on the same MySQL server as your application databases or on a separate server for better isolation.
+
+**Note**: The stats database is optional. If not configured, the system will continue to work with in-memory statistics only (which are lost on restart).
+
 ## Usage
 
 ### Running the Web Application
@@ -202,13 +265,87 @@ Triggers a manual synchronization.
 }
 ```
 
+### GET /api/stats/history
+Returns recent sync history from the statistics database.
+
+**Query Parameters:**
+- `limit` (optional, default: 10, max: 100) - Number of records to return
+
+**Response:**
+```json
+{
+  "history": [
+    {
+      "id": 123,
+      "sync_started_at": "2026-02-06 22:00:00",
+      "sync_completed_at": "2026-02-06 22:00:02",
+      "duration_seconds": 2.34,
+      "status": "success",
+      "mode": "master-slave",
+      "total_inserts": 5,
+      "total_updates": 10,
+      "total_deletes": 2,
+      "tables_processed": 3
+    }
+  ],
+  "count": 1
+}
+```
+
+### GET /api/stats/table
+Returns statistics for a specific table.
+
+**Query Parameters:**
+- `table` (required) - Table name
+- `limit` (optional, default: 10, max: 100) - Number of records to return
+
+**Response:**
+```json
+{
+  "table": "users",
+  "stats": [
+    {
+      "rows_processed": 150,
+      "inserts": 5,
+      "updates": 10,
+      "deletes": 2,
+      "sync_timestamp": "2026-02-06 22:00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+### GET /api/stats/errors
+Returns recent error logs from the statistics database.
+
+**Query Parameters:**
+- `limit` (optional, default: 20, max: 100) - Number of records to return
+
+**Response:**
+```json
+{
+  "errors": [
+    {
+      "log_timestamp": "2026-02-06 22:00:00",
+      "message": "Connection timeout",
+      "context": { "details": "..." }
+    }
+  ],
+  "count": 1
+}
+```
+
 ## Web Dashboard
 
 The web dashboard provides:
 - Real-time replication status
-- Sync statistics and success rate
+- Comprehensive sync statistics (total syncs, success rate, inserts/updates/deletes)
 - Configuration overview
 - Table replication status
+- **Recent sync history** with detailed metrics
+- **Per-table statistics** showing historical performance
+- **Recent error logs** for troubleshooting
 - Manual sync trigger button
 - Auto-refresh every 5 seconds
 
@@ -223,7 +360,8 @@ nunezreplication/
 │   │   └── DatabaseManager.php        # Database connection handler
 │   ├── Replication/
 │   │   ├── ReplicationEngine.php      # Core replication logic
-│   │   └── ReplicationMetadata.php    # Metadata tracking system
+│   │   ├── ReplicationMetadata.php    # Metadata tracking system
+│   │   └── ReplicationStatsDB.php     # Statistics database manager
 │   ├── Api/
 │   │   ├── Router.php                 # API routing
 │   │   └── ApiController.php          # API endpoints
@@ -238,6 +376,7 @@ nunezreplication/
 ├── tests/
 │   ├── test_replication.php                    # Basic replication tests
 │   ├── test_update_delete_replication.php      # Update/delete tests
+│   ├── test_stats_db.php                       # Statistics DB tests
 │   └── banking_schema.sql                      # Test schema
 ├── config.json                        # Your configuration
 ├── config.example.json                # Example configuration
