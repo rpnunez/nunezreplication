@@ -624,10 +624,20 @@ jobs:
           php -S localhost:8081 -t public public/index.php > remote-server.log 2>&1 &
           REMOTE_PID=$!
           echo $REMOTE_PID > remote-server.pid
-          sleep 3
           
-          echo "Testing remote API server..."
-          curl -s http://localhost:8081/api/status | jq '.'
+          echo "Waiting for remote API server to be ready..."
+          for i in {1..30}; do
+            if curl -s -f http://localhost:8081/api/status > /dev/null 2>&1; then
+              echo "Remote API server is ready"
+              curl -s http://localhost:8081/api/status | jq '.'
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 1
+          done
+          echo "Remote API server failed to become ready"
+          cat remote-server.log
+          exit 1
       
       - name: Verify databases before sync
         run: |
@@ -663,16 +673,24 @@ jobs:
           echo "=== Testing Remote API Endpoints with Authentication ==="
           
           echo "Testing /api/status endpoint"
-          STATUS=$(curl -s http://localhost:8081/api/status)
+          STATUS=$(curl -sSf http://localhost:8081/api/status)
           echo "$STATUS" | jq '.'
           
           echo "Testing /api/metadata endpoint with auth"
-          curl -s -H "X-API-Key: test-remote-api-key" \
+          curl -sSf -H "X-API-Key: test-remote-api-key" \
             "http://localhost:8081/api/metadata?table=customers" | jq '.'
           
           echo "Testing /api/pull endpoint with auth"
-          curl -s -H "X-API-Key: test-remote-api-key" \
-            "http://localhost:8081/api/pull?table=customers" | jq '.'
+          PULL_RESPONSE=$(curl -sSf -H "X-API-Key: test-remote-api-key" \
+            "http://localhost:8081/api/pull?table=customers")
+          echo "$PULL_RESPONSE" | jq '.'
+          
+          # Verify successful response
+          if ! echo "$PULL_RESPONSE" | jq -e '.success == true' > /dev/null; then
+            echo "✗ API pull endpoint did not return success"
+            exit 1
+          fi
+          echo "✓ API endpoints validated successfully"
       
       - name: Run multi-environment sync
         run: |
@@ -769,6 +787,12 @@ jobs:
         run: |
           echo "=== Testing Push-Only Sync Mode ==="
           
+          # Add a unique customer to remote that should NOT be pulled in push-only mode
+          mysql -h 127.0.0.1 -P 3308 -u root -ptest_password banking_remote -e "
+            INSERT INTO customers (first_name, last_name, email, phone, address) 
+            VALUES ('PushOnly', 'TestCustomer', 'pushonly.test@example.com', '555-8888', '888 Push Test St');
+          "
+          
           # Create config with push-only mode
           cat > config.test.multi-push.json << 'EOF'
           {
@@ -813,6 +837,19 @@ jobs:
           EOF
           
           php src/sync_multi.php config.test.multi-push.json
+          
+          # Verify that the push-only customer from remote does NOT exist in local
+          PUSH_ONLY_CUSTOMER=$(mysql -h 127.0.0.1 -P 3306 -u root -ptest_password banking_local_master -e "
+            SELECT COUNT(*) as count FROM customers WHERE email = 'pushonly.test@example.com';
+          " -s -N)
+          
+          if [ "$PUSH_ONLY_CUSTOMER" -eq "0" ]; then
+            echo "✓ Push-only mode correctly skipped pulling from remote"
+          else
+            echo "✗ Push-only mode FAILED: remote customer was pulled to local"
+            exit 1
+          fi
+          
           echo "✓ Push-only sync mode test completed"
       
       - name: Test error handling
