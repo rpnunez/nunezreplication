@@ -47,6 +47,24 @@ cp config.example.json config.json
 
 4. Edit `config.json` with your database credentials and replication settings.
 
+## MySQL Replication Setup Utility
+
+For WordPress sites on AlmaLinux VPS, we provide a comprehensive setup utility that generates all necessary configuration files for production-ready Master-Slave replication:
+
+```bash
+php setup_mysql_replication.php
+```
+
+This utility creates:
+- MySQL master and slave configuration files
+- Replication user setup SQL scripts
+- Complete tracking database schema
+- WordPress-specific configuration
+- Automated cron job setup scripts
+- Comprehensive setup documentation
+
+**For detailed information**, see [MYSQL_REPLICATION_SETUP.md](MYSQL_REPLICATION_SETUP.md)
+
 ## Configuration
 
 The application uses a JSON configuration file. Here's what each setting means:
