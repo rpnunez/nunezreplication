@@ -516,6 +516,11 @@ The workflow uses a banking application schema with customers, accounts, and tra
 
 ISC
 
+## Additional Documentation
+
+- **[Multi-Environment Synchronization Guide](MULTI_ENV_GUIDE.md)**: Comprehensive guide for setting up API-based synchronization across multiple environments
+- **[Feature Roadmap](ROADMAP.md)**: Current features and potential future enhancements
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
