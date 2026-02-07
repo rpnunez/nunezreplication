@@ -780,4 +780,13 @@ async function initConfigEditor() {
             e.target.classList.remove('active');
         }
     });
+    
+    // Close modals on Escape key for keyboard accessibility
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal.active').forEach(modal => {
+                modal.classList.remove('active');
+            });
+        }
+    });
 }

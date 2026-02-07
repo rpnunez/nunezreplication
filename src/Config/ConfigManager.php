@@ -22,7 +22,7 @@ class ConfigManager
         foreach ($files as $file) {
             $filename = basename($file);
             // Skip composer.json and other non-config files
-            if (strpos($filename, 'config') !== false || strpos($filename, 'composer') === false) {
+            if (strpos($filename, 'config') !== false && strpos($filename, 'composer') === false) {
                 $configs[] = [
                     'filename' => $filename,
                     'path' => $file,
@@ -74,9 +74,9 @@ class ConfigManager
      */
     public function saveConfig($filename, $content)
     {
-        // Validate filename
-        if (!preg_match('/^[a-zA-Z0-9._-]+\.json$/', $filename)) {
-            throw new \Exception('Invalid filename. Only alphanumeric characters, dots, dashes, and underscores are allowed.');
+        // Validate filename - prevent consecutive special characters
+        if (!preg_match('/^[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*\.json$/', $filename)) {
+            throw new \Exception('Invalid filename. Only alphanumeric characters with single dots, dashes, or underscores between them are allowed.');
         }
         
         // Validate JSON
